@@ -5,18 +5,18 @@
 # حساباتي | HISABATI
 ### كل ديونك ومستحقاتك في مكان واحد
 
-[![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-0E9F6E?style=for-the-badge&logo=android&logoColor=white)](releases/hisabati-v1.0-android.apk)
+[![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024%2B)-0E9F6E?style=for-the-badge&logo=android&logoColor=white)](releases/hisabati-v1.0-android.apk?raw=true)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2-0B1B32?style=for-the-badge&logo=kotlin&logoColor=white)](app/build.gradle.kts)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-10B981?style=for-the-badge&logo=jetpackcompose&logoColor=white)](app/src/main/java/com/example/ui/theme/Theme.kt)
 [![Arabic RTL](https://img.shields.io/badge/Arabic%20RTL-100%25-D4AF37?style=for-the-badge)](app/src/main/res/values/strings.xml)
 
 **تطوير وتنفيذ: عمل أنما سوفت — للتواصل والدعم المباشر: [`772317950`](tel:772317950)**
 
-[⬇️ تحميل حزمة التثبيت المباشر APK](#-التحميل-والتثبيت-المباشر-على-هواتف-android) •
-[📸 صور من التطبيق](#-لقطات-من-واجهة-التطبيق) •
-[✨ المميزات الرئيسية](#-المميزات-الرئيسية) •
-[🏛️ البنية التقنية](#️-البنية-التقنية-والمعمارية) •
-[🗄️ الخادم وقاعدة البيانات](#️-الخادم-الخلفي-وقاعدة-البيانات-postgresql)
+[⬇️ تحميل حزمة التثبيت المباشر APK](#download-apk) •
+[📸 صور من التطبيق](#screenshots) •
+[✨ المميزات الرئيسية](#features) •
+[🏛️ البنية التقنية](#architecture) •
+[🗄️ الخادم وقاعدة البيانات](#backend)
 
 </div>
 
@@ -30,25 +30,27 @@
 
 ---
 
+<a id="download-apk"></a>
 ## ⬇️ التحميل والتثبيت المباشر على هواتف Android
 
-يمكنك تحميل حزمة التثبيت الجاهزة مباشرة على هاتفك من هذا المستودع أو من صفحة **GitHub Releases**:
+يمكنك تحميل حزمة التثبيت الجاهزة مباشرة على هاتفك من هذا المستودع عبر رابط التنزيل المباشر (`?raw=true`) أو من صفحة **GitHub Releases**:
 
-| الحزمة | الإصدار | المتطلبات | التحميل المباشر |
-| :--- | :---: | :---: | :--- |
-| **`hisabati-v1.0-android.apk`** | `v1.0` | Android 7.0+ (API 24+) | [**تحميل APK الآن**](releases/hisabati-v1.0-android.apk) |
+| الحزمة | الإصدار | الحجم | المتطلبات | التحميل المباشر |
+| :--- | :---: | :---: | :---: | :--- |
+| **`hisabati-v1.0-android.apk`** | `v1.0` | ~30 MB | Android 7.0+ (API 24+) | [**⬇️ تحميل APK الآن (رابط مباشر)**](releases/hisabati-v1.0-android.apk?raw=true) • [صفحة الملف](releases/hisabati-v1.0-android.apk) |
 
 > ملف التحقق من السلامة (Checksum): [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)
 
 ### خطوات التثبيت على الجوال
-1. نزّل ملف **`hisabati-v1.0-android.apk`** من المجلد [`releases/`](releases/hisabati-v1.0-android.apk) على هاتفك الأندرويد.
-2. افتح الملف من مدير الملفات أو الإشعارات، وإذا طُلب منك فعّل خيار **"السماح بتثبيت التطبيقات من هذا المصدر"**.
+1. اضغط على [**⬇️ تحميل APK الآن (رابط مباشر)**](releases/hisabati-v1.0-android.apk?raw=true) لبدء تنزيل ملف **`hisabati-v1.0-android.apk`** مباشرةً (إذا كنت تتصفح من داخل تطبيق الجوال ولم يبدأ التنزيل، افتح صفحة المستودع في متصفح Chrome أو اضغط على [صفحة الملف](releases/hisabati-v1.0-android.apk) ثم اختر **View raw** / **Download**).
+2. بعد انتهاء التنزيل، افتح الملف من مدير الملفات أو الإشعارات، وإذا طُلب منك فعّل خيار **"السماح بتثبيت التطبيقات من هذا المصدر"**.
 3. اضغط **تثبيت (Install)** ثم افتح تطبيق **حساباتي**.
 
 > **ملاحظة التوقيع:** الحزمة الجاهزة `hisabati-v1.0-android.apk` موقّعة بمفتاح التطوير المعتمد في المشروع للتثبيت الفوري والتشغيل المباشر على هواتف Android، بينما يستخدم إصدار الإنتاج لمتجر Google Play (`.aab`) مفاتيح التوقيع السرية عبر بيئة CI (`KEYSTORE_PATH` و`STORE_PASSWORD` و`KEY_PASSWORD`).
 
 ---
 
+<a id="screenshots"></a>
 ## 📸 لقطات من واجهة التطبيق
 
 <div align="center">
@@ -61,6 +63,7 @@
 
 ---
 
+<a id="features"></a>
 ## ✨ المميزات الرئيسية
 
 ### 1. لوحة تحكم مالية تفاعلية (Dashboard)
@@ -104,6 +107,7 @@
 
 ---
 
+<a id="architecture"></a>
 ## 🏛️ البنية التقنية والمعمارية
 
 ```text
@@ -141,10 +145,11 @@ gradle :app:assembleDebug
 يتم إنشاء ملف الـ APK في:
 `app/build/outputs/apk/debug/app-debug.apk`
 
-كما يحتوي المستودع على مسار عمل تلقائي في [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) لبناء ونشر حزمة APK تلقائياً في **GitHub Releases** عند دفع أي وسْم إصدار (`git tag v1.0.0 && git push --tags`).
+كما يحتوي المستودع على مسار عمل تلقائي في [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml) لبناء ونشر حزمة APK تلقائياً في **GitHub Releases** عند دفع أي وسْم إصدار (`git tag v1.0.0 && git push --tags`) أو تشغيله يدوياً من تبويب **Actions -> Run workflow**.
 
 ---
 
+<a id="backend"></a>
 ## 🗄️ الخادم الخلفي وقاعدة البيانات (PostgreSQL)
 
 يضم المستودع خادماً خلفياً متكاملاً في [`backend/`](backend/) وترحيل قاعدة بيانات علائقية مكون من **18 جدولاً** في [`backend/migrations/001_initial_schema.sql`](backend/migrations/001_initial_schema.sql):
