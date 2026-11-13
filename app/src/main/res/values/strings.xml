@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">حساباتي</string>
+    <string name="app_tagline">كل ديونك ومستحقاتك في مكان واحد</string>
+    <string name="app_subtitle">نظام مالي عربي متكامل لإدارة الديون والمدفوعات والأقساط</string>
+    <string name="sign_in_google">تسجيل الدخول بحساب Google</string>
+    <string name="sign_up_google">إنشاء حساب جديد عبر Google</string>
+    <string name="nav_dashboard">الرئيسية</string>
+    <string name="nav_debts">الديون</string>
+    <string name="nav_contacts">الأشخاص</string>
+    <string name="nav_reports">التقارير</string>
+    <string name="nav_more">المزيد</string>
+    <string name="notification_channel_name">تذكيرات الديون والأقساط</string>
+    <string name="notification_channel_desc">تنبيهات مواعيد الاستحقاق والدفعات المتأخرة</string>
+</resources>

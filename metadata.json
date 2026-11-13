@@ -1,0 +1,6 @@
+{
+  "name": "حساباتي",
+  "description": "تطبيق عربي متكامل لإدارة الديون والمستحقات والمدفوعات والأقساط والعملاء مع العمل دون إنترنت والمزامنة السحابية ومساعد مالي ذكي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

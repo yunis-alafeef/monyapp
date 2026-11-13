@@ -1,0 +1,255 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile and workspace preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "accountType": { "type": "string", "enum": ["PERSONAL", "BUSINESS"] },
+        "workspaceName": { "type": "string" },
+        "defaultCurrency": { "type": "string" },
+        "aiConsentGranted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "displayName", "accountType", "defaultCurrency", "aiConsentGranted", "createdAt", "updatedAt"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Customer, supplier, or personal contact in the ledger",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "notes": { "type": "string" },
+        "avatarUri": { "type": "string" },
+        "createdAtMillis": { "type": "integer" },
+        "updatedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fullName", "phone", "createdAtMillis", "updatedAtMillis", "createdAt", "updatedAt"]
+    },
+    "Debt": {
+      "title": "Debt",
+      "description": "Receivable or payable debt entry in minor currency units",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "contactId": { "type": "string" },
+        "contactName": { "type": "string" },
+        "direction": { "type": "string", "enum": ["RECEIVABLE", "PAYABLE"] },
+        "principalMinor": { "type": "integer" },
+        "remainingMinor": { "type": "integer" },
+        "currencyCode": { "type": "string" },
+        "exchangeRateMicros": { "type": "integer" },
+        "recordedAtMillis": { "type": "integer" },
+        "dueAtMillis": { "type": "integer" },
+        "reason": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "attachmentUri": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["OPEN", "PARTIAL", "PAID", "OVERDUE", "SCHEDULED", "SETTLED"] },
+        "version": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "contactId", "contactName", "direction", "principalMinor", "remainingMinor", "currencyCode", "exchangeRateMicros", "recordedAtMillis", "dueAtMillis", "reason", "status", "version", "createdAt", "updatedAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Immutable payment or settlement receipt record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "debtId": { "type": "string" },
+        "contactId": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "amountMinor": { "type": "integer" },
+        "discountMinor": { "type": "integer" },
+        "currencyCode": { "type": "string" },
+        "method": { "type": "string", "enum": ["CASH", "TRANSFER", "CARD", "OTHER"] },
+        "paidAtMillis": { "type": "integer" },
+        "balanceBeforeMinor": { "type": "integer" },
+        "balanceAfterMinor": { "type": "integer" },
+        "notes": { "type": "string" },
+        "idempotencyKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "debtId", "contactId", "receiptNumber", "amountMinor", "discountMinor", "currencyCode", "method", "paidAtMillis", "balanceBeforeMinor", "balanceAfterMinor", "idempotencyKey", "createdAt"]
+    },
+    "Installment": {
+      "title": "Installment",
+      "description": "Scheduled installment belonging to a debt",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "debtId": { "type": "string" },
+        "installmentNumber": { "type": "integer" },
+        "amountMinor": { "type": "integer" },
+        "paidMinor": { "type": "integer" },
+        "dueAtMillis": { "type": "integer" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "OVERDUE"] },
+        "paidAtMillis": { "type": "integer" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "debtId", "installmentNumber", "amountMinor", "paidMinor", "dueAtMillis", "status", "createdAt", "updatedAt"]
+    },
+    "Currency": {
+      "title": "Currency",
+      "description": "Supported or custom currency with exact micro-scaled exchange rate",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "code": { "type": "string" },
+        "nameAr": { "type": "string" },
+        "symbol": { "type": "string" },
+        "rateToUsdMicros": { "type": "integer" },
+        "isCustom": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "code", "nameAr", "symbol", "rateToUsdMicros", "isCustom", "createdAt", "updatedAt"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Scheduled payment or due-date reminder",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "debtId": { "type": "string" },
+        "contactId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "triggerAtMillis": { "type": "integer" },
+        "repeatType": { "type": "string", "enum": ["ONCE", "DAILY", "WEEKLY", "MONTHLY"] },
+        "priority": { "type": "string", "enum": ["HIGH", "NORMAL", "LOW"] },
+        "isEnabled": { "type": "boolean" },
+        "isSent": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "debtId", "contactId", "title", "message", "triggerAtMillis", "repeatType", "priority", "isEnabled", "isSent", "createdAt", "updatedAt"]
+    },
+    "NotificationLog": {
+      "title": "NotificationLog",
+      "description": "In-app notification entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "category": { "type": "string" },
+        "relatedDebtId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "body", "category", "isRead", "createdAtMillis", "createdAt", "updatedAt"]
+    },
+    "MessageTemplate": {
+      "title": "MessageTemplate",
+      "description": "Arabic WhatsApp and SMS template",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "titleAr": { "type": "string" },
+        "bodyTemplate": { "type": "string" },
+        "channel": { "type": "string", "enum": ["WHATSAPP", "SMS", "BOTH"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "titleAr", "bodyTemplate", "channel", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable financial audit log entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "details": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "actorName", "action", "entityType", "entityId", "details", "createdAtMillis", "createdAt"]
+    },
+    "WorkspaceMember": {
+      "title": "WorkspaceMember",
+      "description": "Team member and RBAC permissions in a business workspace",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "MANAGER", "STAFF", "VIEWER"] },
+        "canAddDebt": { "type": "boolean" },
+        "canEditDebt": { "type": "boolean" },
+        "canRecordPayment": { "type": "boolean" },
+        "canViewReports": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "email", "role", "canAddDebt", "canEditDebt", "canRecordPayment", "canViewReports", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner user profile and workspace preferences"
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/Contact" },
+      "description": "User-scoped contacts"
+    },
+    "/users/{userId}/debts/{debtId}": {
+      "schema": { "$ref": "#/entities/Debt" },
+      "description": "User-scoped receivables and payables"
+    },
+    "/users/{userId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "User-scoped immutable payment ledger"
+    },
+    "/users/{userId}/installments/{installmentId}": {
+      "schema": { "$ref": "#/entities/Installment" },
+      "description": "User-scoped debt installment schedules"
+    },
+    "/users/{userId}/currencies/{currencyId}": {
+      "schema": { "$ref": "#/entities/Currency" },
+      "description": "User-scoped currencies and exchange rates"
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/Reminder" },
+      "description": "User-scoped scheduled reminders"
+    },
+    "/users/{userId}/notification_logs/{logId}": {
+      "schema": { "$ref": "#/entities/NotificationLog" },
+      "description": "User-scoped in-app notification logs"
+    },
+    "/users/{userId}/message_templates/{templateId}": {
+      "schema": { "$ref": "#/entities/MessageTemplate" },
+      "description": "User-scoped Arabic WhatsApp and SMS templates"
+    },
+    "/users/{userId}/audit_logs/{auditId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "User-scoped immutable financial audit logs"
+    },
+    "/users/{userId}/workspace_members/{memberId}": {
+      "schema": { "$ref": "#/entities/WorkspaceMember" },
+      "description": "User-scoped workspace team members and permissions"
+    }
+  }
+}
