@@ -5,6 +5,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
 import androidx.fragment.app.FragmentActivity
@@ -27,6 +35,7 @@ import com.example.data.repository.AiFinancialRepository
 import com.example.data.repository.HisabatiRepository
 import com.example.notifications.NotificationHelper
 import com.example.security.configureAppCheck
+import com.example.ui.components.AnmaSoftFooterBar
 import com.example.ui.components.PinUnlockScreen
 import com.example.ui.navigation.HisabatiAppShell
 import com.example.ui.screens.AuthGatewayScreen
@@ -91,20 +100,56 @@ class MainActivity : FragmentActivity() {
             HisabatiTheme(themeMode = prefs.themeMode) {
                 when {
                     !splashFinished -> {
-                        SplashScreen(onFinished = { splashFinished = true })
+                        Scaffold(
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                            bottomBar = { AnmaSoftFooterBar(modifier = Modifier.navigationBarsPadding()) }
+                        ) { innerPadding ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .consumeWindowInsets(innerPadding)
+                            ) {
+                                SplashScreen(onFinished = { splashFinished = true })
+                            }
+                        }
                     }
 
                     !prefs.onboardingCompleted -> {
-                        OnboardingScreen(
-                            onFinishOnboarding = {
-                                scope.launch { preferencesStore.setOnboardingCompleted(true) }
+                        Scaffold(
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                            bottomBar = { AnmaSoftFooterBar(modifier = Modifier.navigationBarsPadding()) }
+                        ) { innerPadding ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .consumeWindowInsets(innerPadding)
+                            ) {
+                                OnboardingScreen(
+                                    onFinishOnboarding = {
+                                        scope.launch { preferencesStore.setOnboardingCompleted(true) }
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
 
                     firebaseUser == null -> {
                         pinUnlocked = false
-                        AuthGatewayScreen(onAuthSuccess = {})
+                        Scaffold(
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                            bottomBar = { AnmaSoftFooterBar(modifier = Modifier.navigationBarsPadding()) }
+                        ) { innerPadding ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .consumeWindowInsets(innerPadding)
+                            ) {
+                                AuthGatewayScreen(onAuthSuccess = {})
+                            }
+                        }
                     }
 
                     prefs.pinEnabled && !pinUnlocked -> {
@@ -113,14 +158,26 @@ class MainActivity : FragmentActivity() {
                                 triggerBiometricUnlock()
                             }
                         }
-                        PinUnlockScreen(
-                            biometricAvailable = prefs.biometricEnabled && biometricAvailable,
-                            onVerifyPin = { candidate ->
-                                preferencesStore.verifyPin(candidate, prefs.pinSalt, prefs.pinHash)
-                            },
-                            onBiometricClick = { triggerBiometricUnlock() },
-                            onUnlocked = { pinUnlocked = true }
-                        )
+                        Scaffold(
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                            bottomBar = { AnmaSoftFooterBar(modifier = Modifier.navigationBarsPadding()) }
+                        ) { innerPadding ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .consumeWindowInsets(innerPadding)
+                            ) {
+                                PinUnlockScreen(
+                                    biometricAvailable = prefs.biometricEnabled && biometricAvailable,
+                                    onVerifyPin = { candidate ->
+                                        preferencesStore.verifyPin(candidate, prefs.pinSalt, prefs.pinHash)
+                                    },
+                                    onBiometricClick = { triggerBiometricUnlock() },
+                                    onUnlocked = { pinUnlocked = true }
+                                )
+                            }
+                        }
                     }
 
                     else -> {

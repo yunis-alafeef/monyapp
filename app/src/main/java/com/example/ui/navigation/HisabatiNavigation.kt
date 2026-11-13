@@ -3,10 +3,14 @@ package com.example.ui.navigation
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
@@ -40,6 +44,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.domain.model.DebtDirection
+import com.example.ui.components.AnmaSoftFooterBar
 import com.example.ui.screens.AddDebtScreen
 import com.example.ui.screens.AddEditContactScreen
 import com.example.ui.screens.AiAssistantScreen
@@ -159,21 +164,28 @@ fun HisabatiAppShell(
 
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            contentWindowInsets = WindowInsets.navigationBars,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                if (showTopLevelNav && !isWide) {
-                    NavigationBar {
-                        topDestinations.forEach { dest ->
-                            val selected = currentRoute.startsWith(dest.baseRoute)
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navigateTopLevel(dest.route) },
-                                icon = { Icon(dest.icon, contentDescription = dest.label) },
-                                label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.testTag(dest.testTag)
-                            )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (showTopLevelNav && !isWide) {
+                        NavigationBar(
+                            windowInsets = WindowInsets(0, 0, 0, 0)
+                        ) {
+                            topDestinations.forEach { dest ->
+                                val selected = currentRoute.startsWith(dest.baseRoute)
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { navigateTopLevel(dest.route) },
+                                    icon = { Icon(dest.icon, contentDescription = dest.label) },
+                                    label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.testTag(dest.testTag)
+                                )
+                            }
                         }
                     }
+                    AnmaSoftFooterBar(
+                        modifier = Modifier.navigationBarsPadding()
+                    )
                 }
             }
         ) { innerPadding ->
@@ -181,6 +193,7 @@ fun HisabatiAppShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
             ) {
                 if (showTopLevelNav && isWide) {
                     NavigationRail {
