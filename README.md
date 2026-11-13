@@ -172,7 +172,7 @@ npm run build && npm start
 <div dir="rtl" align="center">
 
 ### 📞 الدعم والتطوير
-**عمل أنما سوفت (Anma Soft)**
+**عمل أنما سوفت (Inma Soft)**
 للطلبات الخاصة والدعم الفني: [**`772317950`**](tel:772317950)
 
 </div>
