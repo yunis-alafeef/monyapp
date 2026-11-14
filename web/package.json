@@ -1,0 +1,10 @@
+{
+  "name": "hisabati-pwa",
+  "version": "1.0.0",
+  "description": "Offline-capable iPhone & Web PWA companion for HISABATI",
+  "type": "module",
+  "scripts": {
+    "serve": "npx --yes serve public -l 4173",
+    "test": "node --test tests/pwa.test.mjs"
+  }
+}
