@@ -68,6 +68,7 @@ import com.example.domain.model.MessageChannel
 import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
 import com.example.export.ArabicReportExporter
+import com.example.export.PdfDocumentKind
 import com.example.export.StatementPdfLine
 import com.example.messaging.ExternalMessagingHelper
 import com.example.notifications.NotificationHelper
@@ -245,6 +246,62 @@ fun DebtDetailScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("إرسال آلي عبر WhatsApp Cloud API")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        fun buildDebtVoucherPdf() = ArabicReportExporter.generateArabicPdfReport(
+                            context = context,
+                            fileNamePrefix = "debt_voucher_${debt.id.takeLast(6)}",
+                            reportTitle = "سند قيد مالي #${debt.id.takeLast(6).uppercase()}",
+                            subtitle = "الطرف: ${debt.contactName} • ${dirEnum.labelAr}",
+                            summaryLines = listOf(
+                                "الطرف / العميل" to debt.contactName,
+                                "أصل الدين" to MoneyMath.formatMinor(debt.principalMinor, currencyCode = debt.currencyCode),
+                                "المسدد / المخصوم" to MoneyMath.formatMinor(paidTotalMinor, currencyCode = debt.currencyCode),
+                                "الرصيد المتبقي" to MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode),
+                                "تاريخ التسجيل" to ArabicReportExporter.formatDate(debt.recordedAtMillis),
+                                "تاريخ الاستحقاق" to ArabicReportExporter.formatDate(debt.dueAtMillis)
+                            ),
+                            rows = listOf(
+                                StatementPdfLine(
+                                    dateLabel = ArabicReportExporter.formatDate(debt.recordedAtMillis),
+                                    title = debt.reason,
+                                    amountLabel = MoneyMath.formatMinor(debt.principalMinor, currencyCode = debt.currencyCode),
+                                    statusOrMethod = dirEnum.labelAr
+                                )
+                            ) + debtPayments.map { p ->
+                                StatementPdfLine(
+                                    dateLabel = ArabicReportExporter.formatDate(p.paidAtMillis),
+                                    title = "دفعة إيصال #${p.receiptNumber}",
+                                    amountLabel = MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode),
+                                    statusOrMethod = runCatching { PaymentMethod.valueOf(p.method).labelAr }.getOrDefault(p.method)
+                                )
+                            },
+                            prefs = state.preferences,
+                            docKind = PdfDocumentKind.DEBT_VOUCHER
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val pdf = buildDebtVoucherPdf()
+                                ArabicReportExporter.shareFile(context, pdf, "application/pdf", "مشاركة سند الدين PDF")
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("سند PDF")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val pdf = buildDebtVoucherPdf()
+                                ArabicReportExporter.printPdfFile(context, pdf, "سند دين ${debt.contactName}")
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Rounded.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("طباعة السند")
                         }
                     }
                 }
@@ -723,6 +780,7 @@ fun InstallmentsScreen(
 fun TransactionDetailScreen(
     payment: PaymentEntity,
     debt: DebtEntity?,
+    preferences: com.example.data.local.UserAppPreferences = com.example.data.local.UserAppPreferences(),
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
@@ -751,7 +809,9 @@ fun TransactionDetailScreen(
                 amountLabel = MoneyMath.formatMinor(payment.amountMinor, currencyCode = payment.currencyCode),
                 statusOrMethod = methodLabel
             )
-        )
+        ),
+        prefs = preferences,
+        docKind = PdfDocumentKind.PAYMENT_RECEIPT
     )
 
     Scaffold(

@@ -31,12 +31,77 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.pdf.PdfDocument
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import org.robolectric.annotation.LooperMode
+import org.robolectric.shadow.api.Shadow
+import java.io.OutputStream
+
+@Implements(PdfDocument::class)
+class TestShadowPdfDocument {
+    private val pages = mutableListOf<PdfDocument.Page>()
+    private var closed = false
+
+    @Implementation
+    protected fun startPage(pageInfo: PdfDocument.PageInfo): PdfDocument.Page {
+        check(!closed) { "document is closed!" }
+        val page = Shadow.newInstanceOf(PdfDocument.Page::class.java)
+        val pageShadow = Shadow.extract<TestShadowPdfPage>(page)
+        pageShadow.init(pageInfo)
+        pages.add(page)
+        return page
+    }
+
+    @Implementation
+    protected fun finishPage(page: PdfDocument.Page) {
+        check(!closed) { "document is closed!" }
+    }
+
+    @Implementation
+    protected fun writeTo(out: OutputStream) {
+        check(!closed) { "document is closed!" }
+        out.write("%PDF-1.4\n%HISABATI_ROBOLECTRIC_TEST_${pages.size}_PAGES\n".toByteArray(Charsets.US_ASCII))
+    }
+
+    @Implementation
+    protected fun close() {
+        closed = true
+    }
+}
+
+@Implements(PdfDocument.Page::class)
+class TestShadowPdfPage {
+    private var info: PdfDocument.PageInfo? = null
+    private var canvas: Canvas? = null
+
+    fun init(pageInfo: PdfDocument.PageInfo) {
+        info = pageInfo
+        val bmp = Bitmap.createBitmap(
+            pageInfo.pageWidth.coerceAtLeast(1),
+            pageInfo.pageHeight.coerceAtLeast(1),
+            Bitmap.Config.ARGB_8888
+        )
+        canvas = Canvas(bmp)
+    }
+
+    @Implementation
+    protected fun getCanvas(): Canvas = checkNotNull(canvas)
+
+    @Implementation
+    protected fun getInfo(): PdfDocument.PageInfo = checkNotNull(info)
+}
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE, sdk = [36])
+@Config(
+    manifest = Config.NONE,
+    sdk = [36],
+    shadows = [TestShadowPdfDocument::class, TestShadowPdfPage::class]
+)
 @LooperMode(LooperMode.Mode.INSTRUMENTATION_TEST)
 class HisabatiLedgerTest {
 
@@ -368,6 +433,78 @@ class HisabatiLedgerTest {
 
             val importRes = repo.importWhatsAppConfigJson(uid, json)
             assertTrue(importRes is RepositoryActionResult.Success)
+        }
+    }
+
+    @Test
+    fun pdfPrintSettings_templatesPerDocumentColorsAndPdfGeneration() = runBlocking(Dispatchers.IO) {
+        withTimeout(20_000L) {
+            val defaults = prefs.preferencesFlow.first()
+            assertEquals(com.example.export.PdfInvoiceTemplate.CLASSIC_FORMAL.name, defaults.printTemplate)
+            assertTrue(defaults.printShowLogoInHeader)
+            assertTrue(defaults.printShowInmaSoftInHeader)
+            assertTrue(defaults.printShowInmaSoftInFooter)
+
+            prefs.setPrintSettings(
+                template = com.example.export.PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER,
+                companyName = "مؤسسة الأمل التجارية",
+                companyPhone = "777000111",
+                companyAddress = "صنعاء - شارع الستين",
+                taxOrCrNumber = "CR-9941",
+                footerNote = "ملاحظة فوتر مخصصة",
+                showLogoInHeader = true,
+                showInmaSoftInHeader = true,
+                showInmaSoftInFooter = true,
+                showSignatureBox = true,
+                showWatermarkBadge = true,
+                debtColorHex = 0xFF881337L,
+                receiptColorHex = 0xFF065F46L,
+                statementColorHex = 0xFF1E3A8AL,
+                reportColorHex = 0xFF4C1D95L
+            )
+            prefs.setPrintLogoPath("/tmp/fake_logo.png")
+            prefs.setPrintDocumentColor(com.example.export.PdfDocumentKind.DEBT_VOUCHER, 0xFF78350FL)
+
+            val updated = prefs.preferencesFlow.first()
+            assertEquals(com.example.export.PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER.name, updated.printTemplate)
+            assertEquals("مؤسسة الأمل التجارية", updated.printCompanyName)
+            assertEquals("/tmp/fake_logo.png", updated.printLogoPath)
+            assertEquals(0xFF78350FL, updated.printDebtColorHex)
+            assertEquals(0xFF065F46L, updated.printReceiptColorHex)
+            assertEquals(0xFF1E3A8AL, updated.printStatementColorHex)
+            assertEquals(0xFF4C1D95L, updated.printReportColorHex)
+
+            val (debtPrimary, _) = ArabicReportExporter.resolveColorPair(updated, com.example.export.PdfDocumentKind.DEBT_VOUCHER)
+            val (receiptPrimary, _) = ArabicReportExporter.resolveColorPair(updated, com.example.export.PdfDocumentKind.PAYMENT_RECEIPT)
+            assertEquals(0xFF78350FL.toInt(), debtPrimary)
+            assertEquals(0xFF065F46L.toInt(), receiptPrimary)
+
+            for (tmpl in com.example.export.PdfInvoiceTemplate.entries) {
+                val pdfFile = ArabicReportExporter.generateArabicPdfReport(
+                    context = context,
+                    fileNamePrefix = "test_${tmpl.name.lowercase()}",
+                    reportTitle = "سند اختبار ${tmpl.titleAr}",
+                    subtitle = "اختبار الترويسة والفوتر والألوان",
+                    summaryLines = listOf("المؤسسة" to "مؤسسة الأمل", "الإجمالي" to "50,000 ر.ي"),
+                    rows = listOf(
+                        com.example.export.StatementPdfLine("2026/11/14", "بند تجريبي أول", "50,000 ر.ي", "نشط")
+                    ),
+                    prefs = updated.copy(printTemplate = tmpl.name, printLogoPath = ""),
+                    docKind = com.example.export.PdfDocumentKind.DEBT_VOUCHER
+                )
+                assertTrue("PDF should exist for ${tmpl.name}", pdfFile.exists())
+                val bytes = pdfFile.readBytes()
+                assertTrue("PDF should be non-empty for ${tmpl.name}", bytes.size > 10)
+                val header = String(bytes.take(5).toByteArray(), Charsets.US_ASCII)
+                assertEquals("%PDF-", header)
+            }
+
+            prefs.applyColorToAllPrintDocuments(0xFF115E59L)
+            val unified = prefs.preferencesFlow.first()
+            assertEquals(0xFF115E59L, unified.printDebtColorHex)
+            assertEquals(0xFF115E59L, unified.printReceiptColorHex)
+            assertEquals(0xFF115E59L, unified.printStatementColorHex)
+            assertEquals(0xFF115E59L, unified.printReportColorHex)
         }
     }
 }

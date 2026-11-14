@@ -75,6 +75,7 @@ import com.example.ui.screens.HelpSupportScreen
 import com.example.ui.screens.InstallmentsScreen
 import com.example.ui.screens.MoreHubScreen
 import com.example.ui.screens.NotificationsScreen
+import com.example.ui.screens.PrintSettingsScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.RecordPaymentScreen
 import com.example.ui.screens.ReminderSettingsScreen
@@ -112,6 +113,7 @@ object HisabatiRoutes {
     const val AI_ASSISTANT = "ai_assistant"
     const val SEARCH = "search"
     const val SETTINGS = "settings"
+    const val PRINT_SETTINGS = "print_settings"
     const val WORKSPACE_MEMBERS = "workspace_members"
     const val BACKUP_SYNC = "backup_sync"
     const val PROFILE = "profile"
@@ -274,6 +276,7 @@ fun HisabatiAppShell(
                             MoreHubScreen(
                                 onOpenReports = { navController.navigate(HisabatiRoutes.REPORTS) },
                                 onOpenStatement = { navController.navigate(HisabatiRoutes.statement()) },
+                                onOpenPrintSettings = { navController.navigate(HisabatiRoutes.PRINT_SETTINGS) },
                                 onOpenAi = { navController.navigate(HisabatiRoutes.AI_ASSISTANT) },
                                 onOpenSearch = { navController.navigate(HisabatiRoutes.SEARCH) },
                                 onOpenNotifications = { navController.navigate(HisabatiRoutes.NOTIFICATIONS) },
@@ -460,6 +463,7 @@ fun HisabatiAppShell(
                                 TransactionDetailScreen(
                                     payment = payment,
                                     debt = parentDebt,
+                                    preferences = state.preferences,
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -525,7 +529,8 @@ fun HisabatiAppShell(
                             ReportsScreen(
                                 state = state,
                                 onBack = { navController.popBackStack() },
-                                onOpenStatement = { cid -> navController.navigate(HisabatiRoutes.statement(cid)) }
+                                onOpenStatement = { cid -> navController.navigate(HisabatiRoutes.statement(cid)) },
+                                onOpenPrintSettings = { navController.navigate(HisabatiRoutes.PRINT_SETTINGS) }
                             )
                         }
 
@@ -576,12 +581,40 @@ fun HisabatiAppShell(
                                     viewModel.addCustomCurrency(code, nameAr, sym, rate)
                                 },
                                 onOpenNotifications = { navController.navigate(HisabatiRoutes.REMINDER_SETTINGS) },
+                                onOpenPrintSettings = { navController.navigate(HisabatiRoutes.PRINT_SETTINGS) },
                                 onOpenWhatsApp = { navController.navigate(HisabatiRoutes.WHATSAPP_SETTINGS) },
                                 onOpenSms = { navController.navigate(HisabatiRoutes.SMS_SETTINGS) },
                                 onOpenWorkspace = { navController.navigate(HisabatiRoutes.WORKSPACE_MEMBERS) },
                                 onOpenBackup = { navController.navigate(HisabatiRoutes.BACKUP_SYNC) },
                                 onOpenProfile = { navController.navigate(HisabatiRoutes.PROFILE) },
                                 onOpenHelp = { navController.navigate(HisabatiRoutes.HELP_SUPPORT) }
+                            )
+                        }
+
+                        composable(HisabatiRoutes.PRINT_SETTINGS) {
+                            PrintSettingsScreen(
+                                state = state,
+                                onBack = { navController.popBackStack() },
+                                onSavePrintSettings = { tpl, name, phone, addr, tax, footer, showLogo, showInmaH, showInmaF, showSig, showWm, dCol, rCol, sCol, gCol ->
+                                    viewModel.setPrintSettings(
+                                        template = tpl,
+                                        companyName = name,
+                                        companyPhone = phone,
+                                        companyAddress = addr,
+                                        taxOrCrNumber = tax,
+                                        footerNote = footer,
+                                        showLogoInHeader = showLogo,
+                                        showInmaSoftInHeader = showInmaH,
+                                        showInmaSoftInFooter = showInmaF,
+                                        showSignatureBox = showSig,
+                                        showWatermarkBadge = showWm,
+                                        debtColorHex = dCol,
+                                        receiptColorHex = rCol,
+                                        statementColorHex = sCol,
+                                        reportColorHex = gCol
+                                    )
+                                },
+                                onLogoUpdated = { path -> viewModel.setPrintLogoPath(path) }
                             )
                         }
 

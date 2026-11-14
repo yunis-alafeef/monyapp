@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.domain.model.AccountType
+import com.example.export.PdfDocumentKind
+import com.example.export.PdfInvoiceTemplate
 import com.example.ui.theme.AppThemeMode
 import com.example.ui.theme.AppThemePalette
 import com.example.ui.theme.CustomThemePreset
@@ -53,6 +55,22 @@ data class UserAppPreferences(
     val whatsappIncludeReasonAndNotes: Boolean = true,
     val whatsappIncludeFooterSignature: Boolean = true,
     val whatsappCustomSignature: String = "شكراً لتعاملكم الكريم • حساباتي",
+    val printTemplate: String = PdfInvoiceTemplate.CLASSIC_FORMAL.name,
+    val printCompanyName: String = "",
+    val printCompanyPhone: String = "",
+    val printCompanyAddress: String = "",
+    val printTaxOrCrNumber: String = "",
+    val printLogoPath: String = "",
+    val printFooterNote: String = "شكراً لتعاملكم معنا • هذا المستند صادر آلياً من تطبيق حساباتي",
+    val printShowLogoInHeader: Boolean = true,
+    val printShowInmaSoftInHeader: Boolean = true,
+    val printShowInmaSoftInFooter: Boolean = true,
+    val printShowSignatureBox: Boolean = true,
+    val printShowWatermarkBadge: Boolean = true,
+    val printDebtColorHex: Long = 0xFF0B1B32L,
+    val printReceiptColorHex: Long = 0xFF065F46L,
+    val printStatementColorHex: Long = 0xFF1E3A8AL,
+    val printReportColorHex: Long = 0xFF115E59L,
     val lastSyncAtMillis: Long = 0L,
     val lastBackupAtMillis: Long = 0L
 )
@@ -90,6 +108,22 @@ class PreferencesStore(private val context: Context) {
         val WA_INCLUDE_REASON = booleanPreferencesKey("wa_include_reason")
         val WA_INCLUDE_FOOTER = booleanPreferencesKey("wa_include_footer")
         val WA_CUSTOM_SIGNATURE = stringPreferencesKey("wa_custom_signature")
+        val PRINT_TEMPLATE = stringPreferencesKey("print_template")
+        val PRINT_COMPANY_NAME = stringPreferencesKey("print_company_name")
+        val PRINT_COMPANY_PHONE = stringPreferencesKey("print_company_phone")
+        val PRINT_COMPANY_ADDRESS = stringPreferencesKey("print_company_address")
+        val PRINT_TAX_OR_CR = stringPreferencesKey("print_tax_or_cr")
+        val PRINT_LOGO_PATH = stringPreferencesKey("print_logo_path")
+        val PRINT_FOOTER_NOTE = stringPreferencesKey("print_footer_note")
+        val PRINT_SHOW_LOGO = booleanPreferencesKey("print_show_logo")
+        val PRINT_SHOW_INMA_HEADER = booleanPreferencesKey("print_show_inma_header")
+        val PRINT_SHOW_INMA_FOOTER = booleanPreferencesKey("print_show_inma_footer")
+        val PRINT_SHOW_SIGNATURE = booleanPreferencesKey("print_show_signature")
+        val PRINT_SHOW_WATERMARK = booleanPreferencesKey("print_show_watermark")
+        val PRINT_DEBT_COLOR_HEX = longPreferencesKey("print_debt_color_hex")
+        val PRINT_RECEIPT_COLOR_HEX = longPreferencesKey("print_receipt_color_hex")
+        val PRINT_STATEMENT_COLOR_HEX = longPreferencesKey("print_statement_color_hex")
+        val PRINT_REPORT_COLOR_HEX = longPreferencesKey("print_report_color_hex")
         val LAST_SYNC_AT = longPreferencesKey("last_sync_at")
         val LAST_BACKUP_AT = longPreferencesKey("last_backup_at")
     }
@@ -127,6 +161,22 @@ class PreferencesStore(private val context: Context) {
             whatsappIncludeReasonAndNotes = prefs[Keys.WA_INCLUDE_REASON] ?: true,
             whatsappIncludeFooterSignature = prefs[Keys.WA_INCLUDE_FOOTER] ?: true,
             whatsappCustomSignature = prefs[Keys.WA_CUSTOM_SIGNATURE] ?: "شكراً لتعاملكم الكريم • حساباتي",
+            printTemplate = prefs[Keys.PRINT_TEMPLATE] ?: PdfInvoiceTemplate.CLASSIC_FORMAL.name,
+            printCompanyName = prefs[Keys.PRINT_COMPANY_NAME] ?: "",
+            printCompanyPhone = prefs[Keys.PRINT_COMPANY_PHONE] ?: "",
+            printCompanyAddress = prefs[Keys.PRINT_COMPANY_ADDRESS] ?: "",
+            printTaxOrCrNumber = prefs[Keys.PRINT_TAX_OR_CR] ?: "",
+            printLogoPath = prefs[Keys.PRINT_LOGO_PATH] ?: "",
+            printFooterNote = prefs[Keys.PRINT_FOOTER_NOTE] ?: "شكراً لتعاملكم معنا • هذا المستند صادر آلياً من تطبيق حساباتي",
+            printShowLogoInHeader = prefs[Keys.PRINT_SHOW_LOGO] ?: true,
+            printShowInmaSoftInHeader = prefs[Keys.PRINT_SHOW_INMA_HEADER] ?: true,
+            printShowInmaSoftInFooter = prefs[Keys.PRINT_SHOW_INMA_FOOTER] ?: true,
+            printShowSignatureBox = prefs[Keys.PRINT_SHOW_SIGNATURE] ?: true,
+            printShowWatermarkBadge = prefs[Keys.PRINT_SHOW_WATERMARK] ?: true,
+            printDebtColorHex = prefs[Keys.PRINT_DEBT_COLOR_HEX] ?: 0xFF0B1B32L,
+            printReceiptColorHex = prefs[Keys.PRINT_RECEIPT_COLOR_HEX] ?: 0xFF065F46L,
+            printStatementColorHex = prefs[Keys.PRINT_STATEMENT_COLOR_HEX] ?: 0xFF1E3A8AL,
+            printReportColorHex = prefs[Keys.PRINT_REPORT_COLOR_HEX] ?: 0xFF115E59L,
             lastSyncAtMillis = prefs[Keys.LAST_SYNC_AT] ?: 0L,
             lastBackupAtMillis = prefs[Keys.LAST_BACKUP_AT] ?: 0L
         )
@@ -275,6 +325,68 @@ class PreferencesStore(private val context: Context) {
             it[Keys.WA_INCLUDE_REASON] = includeReason
             it[Keys.WA_INCLUDE_FOOTER] = includeFooter
             it[Keys.WA_CUSTOM_SIGNATURE] = customSignature.trim().ifEmpty { "شكراً لتعاملكم الكريم • حساباتي" }
+        }
+    }
+
+    suspend fun setPrintSettings(
+        template: PdfInvoiceTemplate,
+        companyName: String,
+        companyPhone: String,
+        companyAddress: String,
+        taxOrCrNumber: String,
+        footerNote: String,
+        showLogoInHeader: Boolean,
+        showInmaSoftInHeader: Boolean,
+        showInmaSoftInFooter: Boolean,
+        showSignatureBox: Boolean,
+        showWatermarkBadge: Boolean,
+        debtColorHex: Long,
+        receiptColorHex: Long,
+        statementColorHex: Long,
+        reportColorHex: Long
+    ) {
+        context.dataStore.edit {
+            it[Keys.PRINT_TEMPLATE] = template.name
+            it[Keys.PRINT_COMPANY_NAME] = companyName.trim()
+            it[Keys.PRINT_COMPANY_PHONE] = companyPhone.trim()
+            it[Keys.PRINT_COMPANY_ADDRESS] = companyAddress.trim()
+            it[Keys.PRINT_TAX_OR_CR] = taxOrCrNumber.trim()
+            it[Keys.PRINT_FOOTER_NOTE] = footerNote.trim().ifEmpty {
+                "شكراً لتعاملكم معنا • هذا المستند صادر آلياً من تطبيق حساباتي"
+            }
+            it[Keys.PRINT_SHOW_LOGO] = showLogoInHeader
+            it[Keys.PRINT_SHOW_INMA_HEADER] = showInmaSoftInHeader
+            it[Keys.PRINT_SHOW_INMA_FOOTER] = showInmaSoftInFooter
+            it[Keys.PRINT_SHOW_SIGNATURE] = showSignatureBox
+            it[Keys.PRINT_SHOW_WATERMARK] = showWatermarkBadge
+            it[Keys.PRINT_DEBT_COLOR_HEX] = debtColorHex
+            it[Keys.PRINT_RECEIPT_COLOR_HEX] = receiptColorHex
+            it[Keys.PRINT_STATEMENT_COLOR_HEX] = statementColorHex
+            it[Keys.PRINT_REPORT_COLOR_HEX] = reportColorHex
+        }
+    }
+
+    suspend fun setPrintLogoPath(path: String) {
+        context.dataStore.edit { it[Keys.PRINT_LOGO_PATH] = path }
+    }
+
+    suspend fun setPrintDocumentColor(kind: PdfDocumentKind, colorHex: Long) {
+        context.dataStore.edit {
+            when (kind) {
+                PdfDocumentKind.DEBT_VOUCHER -> it[Keys.PRINT_DEBT_COLOR_HEX] = colorHex
+                PdfDocumentKind.PAYMENT_RECEIPT -> it[Keys.PRINT_RECEIPT_COLOR_HEX] = colorHex
+                PdfDocumentKind.STATEMENT -> it[Keys.PRINT_STATEMENT_COLOR_HEX] = colorHex
+                PdfDocumentKind.GENERAL_REPORT -> it[Keys.PRINT_REPORT_COLOR_HEX] = colorHex
+            }
+        }
+    }
+
+    suspend fun applyColorToAllPrintDocuments(colorHex: Long) {
+        context.dataStore.edit {
+            it[Keys.PRINT_DEBT_COLOR_HEX] = colorHex
+            it[Keys.PRINT_RECEIPT_COLOR_HEX] = colorHex
+            it[Keys.PRINT_STATEMENT_COLOR_HEX] = colorHex
+            it[Keys.PRINT_REPORT_COLOR_HEX] = colorHex
         }
     }
 

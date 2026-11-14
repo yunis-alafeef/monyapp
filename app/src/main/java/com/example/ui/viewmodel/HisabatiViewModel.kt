@@ -27,6 +27,8 @@ import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
 import com.example.domain.model.SyncStatus
 import com.example.domain.model.WorkspaceRole
+import com.example.export.PdfDocumentKind
+import com.example.export.PdfInvoiceTemplate
 import com.example.ui.theme.AppThemeMode
 import com.example.ui.theme.AppThemePalette
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -663,6 +665,65 @@ class HisabatiViewModel(
                 is RepositoryActionResult.Success -> emitFeedback("تم استيراد ${res.data} قالب وتنسيق واتساب بنجاح")
                 is RepositoryActionResult.Error -> emitFeedback(res.messageAr, isError = true)
             }
+        }
+    }
+
+    fun setPrintSettings(
+        template: PdfInvoiceTemplate,
+        companyName: String,
+        companyPhone: String,
+        companyAddress: String,
+        taxOrCrNumber: String,
+        footerNote: String,
+        showLogoInHeader: Boolean,
+        showInmaSoftInHeader: Boolean,
+        showInmaSoftInFooter: Boolean,
+        showSignatureBox: Boolean,
+        showWatermarkBadge: Boolean,
+        debtColorHex: Long,
+        receiptColorHex: Long,
+        statementColorHex: Long,
+        reportColorHex: Long
+    ) {
+        viewModelScope.launch {
+            preferencesStore.setPrintSettings(
+                template = template,
+                companyName = companyName,
+                companyPhone = companyPhone,
+                companyAddress = companyAddress,
+                taxOrCrNumber = taxOrCrNumber,
+                footerNote = footerNote,
+                showLogoInHeader = showLogoInHeader,
+                showInmaSoftInHeader = showInmaSoftInHeader,
+                showInmaSoftInFooter = showInmaSoftInFooter,
+                showSignatureBox = showSignatureBox,
+                showWatermarkBadge = showWatermarkBadge,
+                debtColorHex = debtColorHex,
+                receiptColorHex = receiptColorHex,
+                statementColorHex = statementColorHex,
+                reportColorHex = reportColorHex
+            )
+            emitFeedback("تم حفظ إعدادات الطباعة وقوالب الفواتير بنجاح")
+        }
+    }
+
+    fun setPrintLogoPath(path: String) {
+        viewModelScope.launch {
+            preferencesStore.setPrintLogoPath(path)
+            emitFeedback(if (path.isNotBlank()) "تم رفع وحفظ شعار المؤسسة للطباعة" else "تمت إزالة شعار المؤسسة")
+        }
+    }
+
+    fun setPrintDocumentColor(kind: PdfDocumentKind, colorHex: Long) {
+        viewModelScope.launch {
+            preferencesStore.setPrintDocumentColor(kind, colorHex)
+        }
+    }
+
+    fun applyColorToAllPrintDocuments(colorHex: Long) {
+        viewModelScope.launch {
+            preferencesStore.applyColorToAllPrintDocuments(colorHex)
+            emitFeedback("تم توحيد اللون لجميع قوالب الفواتير والتقارير")
         }
     }
 

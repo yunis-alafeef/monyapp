@@ -62,6 +62,7 @@ import com.example.domain.model.DebtStatus
 import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
 import com.example.export.ArabicReportExporter
+import com.example.export.PdfDocumentKind
 import com.example.export.StatementPdfLine
 import com.example.ui.components.DebtListCard
 import com.example.ui.components.EmptyStateCard
@@ -84,7 +85,8 @@ private enum class ReportKind(val labelAr: String) {
 fun ReportsScreen(
     state: HisabatiUiState,
     onBack: () -> Unit,
-    onOpenStatement: (String) -> Unit
+    onOpenStatement: (String) -> Unit,
+    onOpenPrintSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hc = HisabatiTheme.colors
@@ -115,6 +117,17 @@ fun ReportsScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع")
                     }
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = onOpenPrintSettings,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Rounded.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("تخصيص القالب", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
             )
         }
@@ -182,7 +195,9 @@ fun ReportsScreen(
                                         "إجمالي المستحق عليّ" to MoneyMath.formatMinor(state.metrics.totalPayableMinor, sym),
                                         "صافي المركز المالي" to MoneyMath.formatSignedMinor(state.metrics.netPositionMinor, sym)
                                     ),
-                                    rows = rows
+                                    rows = rows,
+                                    prefs = state.preferences,
+                                    docKind = PdfDocumentKind.GENERAL_REPORT
                                 )
                                 ArabicReportExporter.shareFile(context, file, "application/pdf", "مشاركة التقرير المالي PDF")
                                 lastExportMessage = "تم إنشاء ومشاركة ملف PDF بنجاح"
@@ -207,7 +222,9 @@ fun ReportsScreen(
                                     summaryLines = listOf(
                                         "صافي المركز المالي" to MoneyMath.formatSignedMinor(state.metrics.netPositionMinor, sym)
                                     ),
-                                    rows = rows
+                                    rows = rows,
+                                    prefs = state.preferences,
+                                    docKind = PdfDocumentKind.GENERAL_REPORT
                                 )
                                 ArabicReportExporter.printPdfFile(context, file, selectedKind.labelAr)
                             },
@@ -406,7 +423,7 @@ fun StatementScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = {
-                                    val pdf = ArabicReportExporter.generateContactStatementPdf(context, contact, contactDebts, contactPayments)
+                                    val pdf = ArabicReportExporter.generateContactStatementPdf(context, contact, contactDebts, contactPayments, state.preferences)
                                     ArabicReportExporter.shareFile(context, pdf, "application/pdf", "مشاركة كشف حساب ${contact.fullName}")
                                 },
                                 modifier = Modifier
@@ -420,7 +437,7 @@ fun StatementScreen(
                             }
                             OutlinedButton(
                                 onClick = {
-                                    val pdf = ArabicReportExporter.generateContactStatementPdf(context, contact, contactDebts, contactPayments)
+                                    val pdf = ArabicReportExporter.generateContactStatementPdf(context, contact, contactDebts, contactPayments, state.preferences)
                                     ArabicReportExporter.printPdfFile(context, pdf, "كشف حساب ${contact.fullName}")
                                 },
                                 modifier = Modifier.weight(1f)

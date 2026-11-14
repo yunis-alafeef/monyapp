@@ -69,6 +69,7 @@ import com.example.domain.model.DebtStatus
 import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
 import com.example.export.ArabicReportExporter
+import com.example.export.PdfDocumentKind
 import com.example.export.StatementPdfLine
 import com.example.messaging.ExternalMessagingHelper
 import com.example.notifications.NotificationHelper
@@ -614,7 +615,9 @@ fun AddDebtScreen(
                             amountLabel = amountFmt,
                             statusOrMethod = dirEnum.labelAr
                         )
-                    )
+                    ),
+                    prefs = state.preferences,
+                    docKind = PdfDocumentKind.DEBT_VOUCHER
                 )
                 ArabicReportExporter.shareFile(context, pdf, "application/pdf", "مشاركة سند الإشعار")
             },

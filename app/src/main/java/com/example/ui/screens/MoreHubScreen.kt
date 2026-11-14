@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
@@ -60,6 +61,7 @@ private data class HubMenuItem(
 fun MoreHubScreen(
     onOpenReports: () -> Unit,
     onOpenStatement: () -> Unit,
+    onOpenPrintSettings: () -> Unit,
     onOpenAi: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -74,6 +76,7 @@ fun MoreHubScreen(
 ) {
     val hc = HisabatiTheme.colors
     val items = listOf(
+        HubMenuItem("الطباعة والفواتير", "قوالب PDF والشعار والألوان", Icons.Rounded.Print, hc.accent, "hub_print_settings", onOpenPrintSettings),
         HubMenuItem("الثيمات والمظهر", "ألوان ساطعة وداكنة ومخصصة", Icons.Rounded.Palette, MaterialTheme.colorScheme.primary, "hub_themes", onOpenSettings),
         HubMenuItem("التقارير والتصدير", "PDF عربي و Excel", Icons.Rounded.Assessment, hc.positive, "hub_reports", onOpenReports),
         HubMenuItem("كشوف الحساب", "كشف تفصيلي لكل شخص", Icons.Rounded.Description, hc.info, "hub_statement", onOpenStatement),

@@ -2,10 +2,18 @@ package com.example.export
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import android.net.Uri
 import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintManager
@@ -15,10 +23,12 @@ import android.text.TextDirectionHeuristics
 import android.text.TextPaint
 import androidx.core.content.FileProvider
 import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.ColorUtils
 import com.example.R
 import com.example.data.local.ContactEntity
 import com.example.data.local.DebtEntity
 import com.example.data.local.PaymentEntity
+import com.example.data.local.UserAppPreferences
 import com.example.domain.model.DebtDirection
 import com.example.domain.model.DebtStatus
 import com.example.domain.model.MoneyMath
@@ -41,13 +51,61 @@ object ArabicReportExporter {
 
     fun formatDate(millis: Long): String = dateFormat.format(Date(millis))
 
+    fun resolveColorPair(prefs: UserAppPreferences, docKind: PdfDocumentKind): Pair<Int, Int> {
+        val primaryHex = when (docKind) {
+            PdfDocumentKind.DEBT_VOUCHER -> prefs.printDebtColorHex
+            PdfDocumentKind.PAYMENT_RECEIPT -> prefs.printReceiptColorHex
+            PdfDocumentKind.STATEMENT -> prefs.printStatementColorHex
+            PdfDocumentKind.GENERAL_REPORT -> prefs.printReportColorHex
+        }
+        val swatch = PdfInvoiceColorSwatches.find { it.primaryHex == primaryHex }
+        val primary = primaryHex.toInt()
+        val accent = swatch?.accentHex?.toInt() ?: ColorUtils.blendARGB(primary, Color.parseColor("#D4AF37"), 0.55f)
+        return primary to accent
+    }
+
+    fun saveLogoFromUri(context: Context, uri: Uri): String? {
+        return runCatching {
+            val brandingDir = File(context.filesDir, "branding").apply { mkdirs() }
+            val destFile = File(brandingDir, "org_logo.png")
+            val rawBitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            } ?: return null
+
+            val maxDim = 512
+            val scale = minOf(1f, maxDim.toFloat() / maxOf(rawBitmap.width, rawBitmap.height).coerceAtLeast(1))
+            val targetW = (rawBitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (rawBitmap.height * scale).toInt().coerceAtLeast(1)
+            val finalBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(rawBitmap, targetW, targetH, true).also {
+                    if (it != rawBitmap) rawBitmap.recycle()
+                }
+            } else {
+                rawBitmap
+            }
+            FileOutputStream(destFile).use { out ->
+                finalBitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+            }
+            finalBitmap.recycle()
+            destFile.absolutePath
+        }.getOrNull()
+    }
+
+    fun clearSavedLogo(path: String) {
+        if (path.isNotBlank()) {
+            runCatching { File(path).delete() }
+        }
+    }
+
     fun generateArabicPdfReport(
         context: Context,
         fileNamePrefix: String,
         reportTitle: String,
         subtitle: String,
         summaryLines: List<Pair<String, String>>,
-        rows: List<StatementPdfLine>
+        rows: List<StatementPdfLine>,
+        prefs: UserAppPreferences = UserAppPreferences(),
+        docKind: PdfDocumentKind = PdfDocumentKind.GENERAL_REPORT
     ): File {
         val reportsDir = File(context.cacheDir, "reports").apply { mkdirs() }
         val file = File(reportsDir, "${fileNamePrefix}_${System.currentTimeMillis()}.pdf")
@@ -56,125 +114,576 @@ object ArabicReportExporter {
             ResourcesCompat.getFont(context, R.font.ibm_plex_sans_arabic)
         }.getOrNull() ?: Typeface.DEFAULT
 
+        val template = runCatching {
+            PdfInvoiceTemplate.valueOf(prefs.printTemplate)
+        }.getOrDefault(PdfInvoiceTemplate.CLASSIC_FORMAL)
+
+        val (primaryColor, accentColor) = resolveColorPair(prefs, docKind)
+        val tintBgColor = ColorUtils.blendARGB(primaryColor, Color.WHITE, 0.93f)
+        val borderTintColor = ColorUtils.blendARGB(primaryColor, Color.WHITE, 0.72f)
+        val darkTextColor = Color.parseColor("#0F172A")
+        val mutedTextColor = Color.parseColor("#475569")
+
+        val logoBitmap = if (prefs.printShowLogoInHeader && prefs.printLogoPath.isNotBlank()) {
+            runCatching {
+                val logoFile = File(prefs.printLogoPath)
+                if (logoFile.exists()) BitmapFactory.decodeFile(logoFile.absolutePath) else null
+            }.getOrNull()
+        } else null
+
+        val companyName = prefs.printCompanyName.ifBlank { prefs.workspaceName }.ifBlank { "حساباتي لإدارة الديون" }
+        val issuedDate = formatDate(System.currentTimeMillis())
+
         val pdf = PdfDocument()
         try {
             val pageWidth = 595 // A4 width at 72dpi
             val pageHeight = 842 // A4 height at 72dpi
-            val margin = 36f
-            val contentWidth = (pageWidth - margin * 2).toInt()
+            val margin = 34f
+            val contentWidth = (pageWidth - margin * 2)
+            val footerTopY = pageHeight - 52f
 
             var pageNum = 1
             var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
             var canvas = page.canvas
 
-            val headerBgPaint = Paint().apply { color = Color.parseColor("#0B1B32") }
-            val accentPaint = Paint().apply { color = Color.parseColor("#10B981") }
-            val borderPaint = Paint().apply {
-                color = Color.parseColor("#CBD5E1")
-                strokeWidth = 1f
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = borderTintColor
+                strokeWidth = 0.9f
                 style = Paint.Style.STROKE
             }
             val rowAltPaint = Paint().apply { color = Color.parseColor("#F8FAFC") }
+            val tintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = tintBgColor }
 
             val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                textSize = 20f
+                color = darkTextColor
+                textSize = 15.5f
                 typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
             }
-            val subtitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#D1FAE5")
-                textSize = 12f
-                typeface = arabicTypeface
-            }
             val bodyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#0F172A")
-                textSize = 11.5f
+                color = darkTextColor
+                textSize = 10.2f
                 typeface = arabicTypeface
             }
             val boldBodyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#0B1B32")
-                textSize = 12f
+                color = primaryColor
+                textSize = 10.6f
                 typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
             }
-
-            // Draw luxury Navy header band
-            canvas.drawRect(0f, 0f, pageWidth.toFloat(), 110f, headerBgPaint)
-            canvas.drawRect(0f, 106f, pageWidth.toFloat(), 110f, accentPaint)
-
-            var y = 24f
-            y += drawRtlParagraph(canvas, "حساباتي — $reportTitle", titlePaint, margin, y, contentWidth) + 6f
-            drawRtlParagraph(canvas, "$subtitle   |   تاريخ الإصدار: ${formatDate(System.currentTimeMillis())}", subtitlePaint, margin, y, contentWidth)
-
-            y = 132f
-            // Summary grid box
-            val summaryBoxStart = y
-            y += 10f
-            for ((label, value) in summaryLines) {
-                val h = drawRtlParagraph(canvas, "$label: $value", boldBodyPaint, margin + 10f, y, contentWidth - 20)
-                y += h + 6f
+            val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = mutedTextColor
+                textSize = 9.2f
+                typeface = arabicTypeface
             }
-            y += 6f
-            canvas.drawRoundRect(margin, summaryBoxStart, pageWidth - margin, y, 8f, 8f, borderPaint)
 
-            y += 20f
-            y += drawRtlParagraph(canvas, "تفاصيل الحركات المالية (${rows.size})", boldBodyPaint, margin, y, contentWidth) + 8f
+            fun drawPageChromeIfNeeded(c: Canvas) {
+                if (template == PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER) {
+                    val outer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = primaryColor
+                        strokeWidth = 2.0f
+                        style = Paint.Style.STROKE
+                    }
+                    val inner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = accentColor
+                        strokeWidth = 0.8f
+                        style = Paint.Style.STROKE
+                    }
+                    c.drawRoundRect(16f, 16f, pageWidth - 16f, pageHeight - 16f, 8f, 8f, outer)
+                    c.drawRoundRect(20f, 20f, pageWidth - 20f, pageHeight - 20f, 6f, 6f, inner)
+                }
+                if (prefs.printShowWatermarkBadge) {
+                    c.save()
+                    c.rotate(-28f, pageWidth / 2f, pageHeight / 2f)
+                    val wmPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = ColorUtils.setAlphaComponent(primaryColor, 14)
+                        textSize = 42f
+                        typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
+                    }
+                    c.drawText("حساباتي • $companyName", pageWidth / 2f, pageHeight / 2f, wmPaint)
+                    c.restore()
+                }
+            }
+
+            fun drawFooter(c: Canvas, currentPage: Int) {
+                val divider = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = accentColor
+                    strokeWidth = 1.2f
+                }
+                c.drawLine(margin, footerTopY, pageWidth - margin, footerTopY, divider)
+
+                val footerRightPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = mutedTextColor
+                    textSize = 8.6f
+                    typeface = arabicTypeface
+                }
+                val footerLeftPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = primaryColor
+                    textSize = 8.8f
+                    typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                }
+                val footerCenterPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = mutedTextColor
+                    textSize = 8.6f
+                    typeface = arabicTypeface
+                    textAlign = Paint.Align.CENTER
+                }
+
+                // Right column (RTL): custom org footer note
+                val footerSideW = 195
+                drawAlignedParagraph(
+                    c,
+                    prefs.printFooterNote,
+                    footerRightPaint,
+                    pageWidth - margin - footerSideW,
+                    footerTopY + 8f,
+                    footerSideW,
+                    Layout.Alignment.ALIGN_NORMAL,
+                    TextDirectionHeuristics.RTL
+                )
+
+                // Center page badge
+                c.drawText("صفحة $currentPage", pageWidth / 2f, footerTopY + 22f, footerCenterPaint)
+
+                // Left column: Inma Soft developer info (RTL BiDi anchored left)
+                if (prefs.printShowInmaSoftInFooter) {
+                    drawAlignedParagraph(
+                        c,
+                        "عمل انما سوفت (Inma Soft) • هاتف: 772317950",
+                        footerLeftPaint,
+                        margin,
+                        footerTopY + 8f,
+                        footerSideW,
+                        Layout.Alignment.ALIGN_OPPOSITE,
+                        TextDirectionHeuristics.RTL
+                    )
+                }
+            }
+
+            fun drawFullHeader(c: Canvas): Float {
+                val headerTop = if (template == PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER) 26f else 0f
+                val headerBottom = headerTop + 120f
+                val headerLeft = if (template == PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER) 26f else 0f
+                val headerRight = if (template == PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER) pageWidth - 26f else pageWidth.toFloat()
+
+                val lightHeaderText = template == PdfInvoiceTemplate.CLASSIC_FORMAL || template == PdfInvoiceTemplate.MODERN_LUXURY
+                when (template) {
+                    PdfInvoiceTemplate.CLASSIC_FORMAL -> {
+                        val bg = Paint().apply { color = primaryColor }
+                        val bar = Paint().apply { color = accentColor }
+                        c.drawRect(headerLeft, headerTop, headerRight, headerBottom, bg)
+                        c.drawRect(headerLeft, headerBottom - 4f, headerRight, headerBottom, bar)
+                    }
+                    PdfInvoiceTemplate.MODERN_LUXURY -> {
+                        val gradPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            shader = LinearGradient(
+                                headerLeft,
+                                headerTop,
+                                headerRight,
+                                headerBottom,
+                                primaryColor,
+                                ColorUtils.blendARGB(primaryColor, accentColor, 0.35f),
+                                Shader.TileMode.CLAMP
+                            )
+                        }
+                        val rect = RectF(18f, 16f, pageWidth - 18f, headerBottom)
+                        c.drawRoundRect(rect, 14f, 14f, gradPaint)
+                    }
+                    PdfInvoiceTemplate.DOUBLE_FRAME_VOUCHER -> {
+                        val rect = RectF(headerLeft, headerTop, headerRight, headerBottom)
+                        c.drawRoundRect(rect, 8f, 8f, tintPaint)
+                        val rule = Paint().apply { color = accentColor; strokeWidth = 1.8f }
+                        c.drawLine(headerLeft, headerBottom, headerRight, headerBottom, rule)
+                    }
+                    PdfInvoiceTemplate.MINIMAL_EXECUTIVE -> {
+                        val sideStripe = Paint().apply { color = primaryColor }
+                        c.drawRect(pageWidth - 12f, 20f, pageWidth - 6f, headerBottom - 6f, sideStripe)
+                        val rule = Paint().apply { color = primaryColor; strokeWidth = 1.6f }
+                        val accentRule = Paint().apply { color = accentColor; strokeWidth = 0.9f }
+                        c.drawLine(margin, headerBottom - 4f, pageWidth - margin, headerBottom - 4f, rule)
+                        c.drawLine(margin, headerBottom, pageWidth - margin, headerBottom, accentRule)
+                    }
+                }
+
+                val hPrimaryColor = if (lightHeaderText) Color.WHITE else primaryColor
+                val hSecondaryColor = if (lightHeaderText) Color.parseColor("#E2E8F0") else mutedTextColor
+                val hAccentColor = if (lightHeaderText) ColorUtils.blendARGB(accentColor, Color.WHITE, 0.35f) else accentColor
+
+                val orgTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = hPrimaryColor
+                    textSize = 13.5f
+                    typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                }
+                val hMetaPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = hSecondaryColor
+                    textSize = 8.8f
+                    typeface = arabicTypeface
+                }
+                val devTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = hAccentColor
+                    textSize = 9.8f
+                    typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                }
+
+                // Right Column (RTL): Organization Information
+                val rightColW = 190
+                val rightColX = pageWidth - margin - rightColW
+                var rightY = headerTop + 24f
+                rightY += drawAlignedParagraph(
+                    c, companyName, orgTitlePaint, rightColX, rightY, rightColW,
+                    Layout.Alignment.ALIGN_NORMAL, TextDirectionHeuristics.RTL
+                ) + 4f
+                val orgDetails = buildList {
+                    if (prefs.printCompanyPhone.isNotBlank()) add("هاتف: ${prefs.printCompanyPhone}")
+                    if (prefs.printCompanyAddress.isNotBlank()) add("العنوان: ${prefs.printCompanyAddress}")
+                    if (prefs.printTaxOrCrNumber.isNotBlank()) add("السجل/الضريبي: ${prefs.printTaxOrCrNumber}")
+                    if (isEmpty()) add("تطبيق حساباتي للإدارة المالية")
+                }.joinToString("\n")
+                drawAlignedParagraph(
+                    c, orgDetails, hMetaPaint, rightColX, rightY, rightColW,
+                    Layout.Alignment.ALIGN_NORMAL, TextDirectionHeuristics.RTL
+                )
+
+                // Center Column: Uploaded Organization Logo (or styled monogram emblem)
+                if (prefs.printShowLogoInHeader) {
+                    val cx = pageWidth / 2f
+                    val cy = headerTop + 58f
+                    val radius = 29f
+                    val whiteBacking = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+                    val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = accentColor
+                        strokeWidth = 2.2f
+                        style = Paint.Style.STROKE
+                    }
+                    c.drawCircle(cx, cy, radius + 2f, whiteBacking)
+                    if (logoBitmap != null) {
+                        val destRect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+                        c.save()
+                        val clipPath = Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) }
+                        c.clipPath(clipPath)
+                        c.drawBitmap(logoBitmap, null, destRect, Paint(Paint.FILTER_BITMAP_FLAG))
+                        c.restore()
+                    } else {
+                        val crestFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = tintBgColor }
+                        c.drawCircle(cx, cy, radius, crestFill)
+                        val monogramPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = primaryColor
+                            textSize = 22f
+                            typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                            textAlign = Paint.Align.CENTER
+                        }
+                        val fm = monogramPaint.fontMetrics
+                        val textY = cy - (fm.ascent + fm.descent) / 2f
+                        c.drawText(companyName.take(1).ifBlank { "ح" }, cx, textY, monogramPaint)
+                    }
+                    c.drawCircle(cx, cy, radius + 2f, ring)
+                }
+
+                // Left Column: Inma Soft Info & Document Metadata
+                val leftColW = 182
+                var leftY = headerTop + 24f
+                if (prefs.printShowInmaSoftInHeader) {
+                    leftY += drawAlignedParagraph(
+                        c,
+                        "انما سوفت | Inma Soft",
+                        devTitlePaint,
+                        margin,
+                        leftY,
+                        leftColW,
+                        Layout.Alignment.ALIGN_OPPOSITE,
+                        TextDirectionHeuristics.RTL
+                    ) + 2f
+                    leftY += drawAlignedParagraph(
+                        c,
+                        "للتطوير والحلول الذكية • 772317950",
+                        hMetaPaint,
+                        margin,
+                        leftY,
+                        leftColW,
+                        Layout.Alignment.ALIGN_OPPOSITE,
+                        TextDirectionHeuristics.RTL
+                    ) + 6f
+                }
+                drawAlignedParagraph(
+                    c,
+                    "${docKind.titleAr}\nتاريخ الإصدار: $issuedDate",
+                    hMetaPaint,
+                    margin,
+                    leftY,
+                    leftColW,
+                    Layout.Alignment.ALIGN_OPPOSITE,
+                    TextDirectionHeuristics.RTL
+                )
+
+                return headerBottom + 16f
+            }
+
+            fun startNewPage(): Float {
+                drawFooter(canvas, pageNum)
+                pdf.finishPage(page)
+                pageNum++
+                page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
+                canvas = page.canvas
+                drawPageChromeIfNeeded(canvas)
+                // Compact continuation header
+                val contPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = primaryColor
+                    textSize = 10f
+                    typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                }
+                drawAlignedParagraph(
+                    canvas,
+                    "$companyName — $reportTitle (تابع)",
+                    contPaint,
+                    margin,
+                    28f,
+                    contentWidth.toInt(),
+                    Layout.Alignment.ALIGN_NORMAL,
+                    TextDirectionHeuristics.RTL
+                )
+                val lineP = Paint().apply { color = accentColor; strokeWidth = 1f }
+                canvas.drawLine(margin, 48f, pageWidth - margin, 48f, lineP)
+                return 58f
+            }
+
+            drawPageChromeIfNeeded(canvas)
+            var y = drawFullHeader(canvas)
+
+            // Document Title Banner
+            val bannerRect = RectF(margin, y, pageWidth - margin, y + 46f)
+            if (template == PdfInvoiceTemplate.MINIMAL_EXECUTIVE) {
+                val accentSide = Paint().apply { color = primaryColor }
+                canvas.drawRect(pageWidth - margin - 4f, y, pageWidth - margin, y + 44f, accentSide)
+            } else {
+                canvas.drawRoundRect(bannerRect, 8f, 8f, tintPaint)
+                canvas.drawRoundRect(bannerRect, 8f, 8f, borderPaint)
+            }
+            drawAlignedParagraph(
+                canvas,
+                reportTitle,
+                titlePaint.apply { color = primaryColor },
+                margin + 12f,
+                y + 7f,
+                (contentWidth - 24f).toInt(),
+                Layout.Alignment.ALIGN_NORMAL,
+                TextDirectionHeuristics.RTL
+            )
+            drawAlignedParagraph(
+                canvas,
+                subtitle,
+                labelPaint,
+                margin + 12f,
+                y + 28f,
+                (contentWidth - 24f).toInt(),
+                Layout.Alignment.ALIGN_NORMAL,
+                TextDirectionHeuristics.RTL
+            )
+            y += 58f
+
+            // Two-column RTL Summary Grid
+            if (summaryLines.isNotEmpty()) {
+                val gap = 10f
+                val cellWidth = (contentWidth - gap) / 2f
+                val chunked = summaryLines.chunked(2)
+                for (pairRow in chunked) {
+                    val rightItem = pairRow[0]
+                    val leftItem = pairRow.getOrNull(1)
+
+                    val rLayout = buildRtlStaticLayout("${rightItem.first}: ${rightItem.second}", boldBodyPaint, (cellWidth - 16f).toInt())
+                    val lLayout = leftItem?.let {
+                        buildRtlStaticLayout("${it.first}: ${it.second}", boldBodyPaint, (cellWidth - 16f).toInt())
+                    }
+                    val rowH = maxOf(rLayout.height, lLayout?.height ?: 0) + 14f
+                    if (y + rowH > footerTopY - 24f) {
+                        y = startNewPage()
+                    }
+                    // Right cell (RTL first item)
+                    val rightRect = RectF(margin + cellWidth + gap, y, pageWidth - margin, y + rowH)
+                    canvas.drawRoundRect(rightRect, 6f, 6f, if (template == PdfInvoiceTemplate.MINIMAL_EXECUTIVE) rowAltPaint else tintPaint)
+                    canvas.drawRoundRect(rightRect, 6f, 6f, borderPaint)
+                    canvas.save()
+                    canvas.translate(rightRect.left + 8f, y + 7f)
+                    rLayout.draw(canvas)
+                    canvas.restore()
+
+                    if (lLayout != null) {
+                        val leftRect = RectF(margin, y, margin + cellWidth, y + rowH)
+                        canvas.drawRoundRect(leftRect, 6f, 6f, if (template == PdfInvoiceTemplate.MINIMAL_EXECUTIVE) rowAltPaint else tintPaint)
+                        canvas.drawRoundRect(leftRect, 6f, 6f, borderPaint)
+                        canvas.save()
+                        canvas.translate(leftRect.left + 8f, y + 7f)
+                        lLayout.draw(canvas)
+                        canvas.restore()
+                    }
+                    y += rowH + 7f
+                }
+                y += 8f
+            }
+
+            // Section Title + Table Header
+            y += drawAlignedParagraph(
+                canvas,
+                "تفاصيل البنود والحركات (${rows.size})",
+                boldBodyPaint,
+                margin,
+                y,
+                contentWidth.toInt(),
+                Layout.Alignment.ALIGN_NORMAL,
+                TextDirectionHeuristics.RTL
+            ) + 6f
+
+            // RTL Columns from Left to Right: [Status (95)] [Amount (115)] [Title (content - 285)] [Date (75)]
+            val colStatusW = 92f
+            val colAmountW = 115f
+            val colDateW = 74f
+            val colTitleW = contentWidth - colStatusW - colAmountW - colDateW
+
+            fun drawTableHeader(targetCanvas: Canvas, topY: Float): Float {
+                val thHeight = 26f
+                val thRect = RectF(margin, topY, pageWidth - margin, topY + thHeight)
+                if (template == PdfInvoiceTemplate.MINIMAL_EXECUTIVE) {
+                    val lineP = Paint().apply { color = primaryColor; strokeWidth = 1.4f }
+                    targetCanvas.drawRect(thRect, rowAltPaint)
+                    targetCanvas.drawLine(margin, topY + thHeight, pageWidth - margin, topY + thHeight, lineP)
+                } else {
+                    val thPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = primaryColor }
+                    targetCanvas.drawRoundRect(thRect, 5f, 5f, thPaint)
+                }
+                val thTextColor = if (template == PdfInvoiceTemplate.MINIMAL_EXECUTIVE) primaryColor else Color.WHITE
+                val thPaintText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = thTextColor
+                    textSize = 9.6f
+                    typeface = Typeface.create(arabicTypeface, Typeface.BOLD)
+                }
+                var cx = margin
+                drawAlignedParagraph(targetCanvas, "الحالة", thPaintText, cx + 4f, topY + 6f, (colStatusW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER, TextDirectionHeuristics.RTL)
+                cx += colStatusW
+                drawAlignedParagraph(targetCanvas, "المبلغ", thPaintText, cx + 4f, topY + 6f, (colAmountW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER, TextDirectionHeuristics.RTL)
+                cx += colAmountW
+                drawAlignedParagraph(targetCanvas, "البيان / التفاصيل", thPaintText, cx + 6f, topY + 6f, (colTitleW - 12f).toInt(), Layout.Alignment.ALIGN_NORMAL, TextDirectionHeuristics.RTL)
+                cx += colTitleW
+                drawAlignedParagraph(targetCanvas, "التاريخ", thPaintText, cx + 4f, topY + 6f, (colDateW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER, TextDirectionHeuristics.RTL)
+                return topY + thHeight
+            }
+
+            if (y + 56f > footerTopY) {
+                y = startNewPage()
+            }
+            y = drawTableHeader(canvas, y)
 
             rows.forEachIndexed { index, row ->
-                if (y > pageHeight - 90f) {
-                    pdf.finishPage(page)
-                    pageNum++
-                    page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
-                    canvas = page.canvas
-                    y = 40f
+                val statusLayout = buildRtlStaticLayout(row.statusOrMethod, bodyPaint, (colStatusW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER)
+                val amountLayout = buildRtlStaticLayout(row.amountLabel, boldBodyPaint, (colAmountW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER)
+                val titleLayout = buildRtlStaticLayout(row.title, bodyPaint, (colTitleW - 12f).toInt(), Layout.Alignment.ALIGN_NORMAL)
+                val dateLayout = buildRtlStaticLayout(row.dateLabel, bodyPaint, (colDateW - 8f).toInt(), Layout.Alignment.ALIGN_CENTER)
+
+                val rowH = maxOf(statusLayout.height, amountLayout.height, titleLayout.height, dateLayout.height) + 12f
+                if (y + rowH > footerTopY - 12f) {
+                    y = startNewPage()
+                    y = drawTableHeader(canvas, y)
                 }
-                val lineText = "${row.dateLabel}  •  ${row.title}  •  ${row.amountLabel}  (${row.statusOrMethod})"
-                val layout = buildRtlStaticLayout(lineText, bodyPaint, contentWidth - 16)
-                val rowH = layout.height + 14f
+
                 if (index % 2 == 0) {
                     canvas.drawRect(margin, y, pageWidth - margin, y + rowH, rowAltPaint)
                 }
-                canvas.save()
-                canvas.translate(margin + 8f, y + 7f)
-                layout.draw(canvas)
-                canvas.restore()
+
+                var cx = margin
+                drawLayoutAt(canvas, statusLayout, cx + 4f, y + 6f)
+                cx += colStatusW
+                drawLayoutAt(canvas, amountLayout, cx + 4f, y + 6f)
+                cx += colAmountW
+                drawLayoutAt(canvas, titleLayout, cx + 6f, y + 6f)
+                cx += colTitleW
+                drawLayoutAt(canvas, dateLayout, cx + 4f, y + 6f)
+
                 canvas.drawLine(margin, y + rowH, pageWidth - margin, y + rowH, borderPaint)
                 y += rowH
             }
 
-            // Footer
-            val footerText = "تم إنشاء هذا التقرير آلياً عبر تطبيق حساباتي — نظام إدارة الديون والمستحقات"
-            drawRtlParagraph(canvas, footerText, subtitlePaint.apply { color = Color.parseColor("#64748B") }, margin, pageHeight - 36f, contentWidth)
+            // Optional Signature & Official Stamp Boxes
+            if (prefs.printShowSignatureBox) {
+                if (y + 76f > footerTopY) {
+                    y = startNewPage()
+                }
+                y += 16f
+                val boxW = (contentWidth - 20f) / 2f
+                val boxH = 54f
+                val rightBox = RectF(pageWidth - margin - boxW, y, pageWidth - margin, y + boxH)
+                val leftBox = RectF(margin, y, margin + boxW, y + boxH)
 
+                canvas.drawRoundRect(rightBox, 6f, 6f, borderPaint)
+                canvas.drawRoundRect(leftBox, 6f, 6f, borderPaint)
+                drawAlignedParagraph(
+                    canvas,
+                    "توقيع المحاسب / ختم $companyName",
+                    labelPaint,
+                    rightBox.left + 8f,
+                    y + 7f,
+                    (boxW - 16f).toInt(),
+                    Layout.Alignment.ALIGN_CENTER,
+                    TextDirectionHeuristics.RTL
+                )
+                drawAlignedParagraph(
+                    canvas,
+                    "توقيع العميل / المستلم",
+                    labelPaint,
+                    leftBox.left + 8f,
+                    y + 7f,
+                    (boxW - 16f).toInt(),
+                    Layout.Alignment.ALIGN_CENTER,
+                    TextDirectionHeuristics.RTL
+                )
+            }
+
+            drawFooter(canvas, pageNum)
             pdf.finishPage(page)
             FileOutputStream(file).use { out -> pdf.writeTo(out) }
             return file
         } finally {
+            runCatching { logoBitmap?.recycle() }
             runCatching { pdf.close() }
         }
     }
 
-    private fun buildRtlStaticLayout(text: String, paint: TextPaint, width: Int): StaticLayout {
-        return StaticLayout.Builder.obtain(text, 0, text.length, paint, width.coerceAtLeast(100))
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+    private fun buildRtlStaticLayout(
+        text: String,
+        paint: TextPaint,
+        width: Int,
+        alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL
+    ): StaticLayout {
+        val safeText = text.ifEmpty { "-" }
+        return StaticLayout.Builder.obtain(safeText, 0, safeText.length, paint, width.coerceAtLeast(40))
+            .setAlignment(alignment)
             .setTextDirection(TextDirectionHeuristics.RTL)
-            .setLineSpacing(2f, 1.15f)
+            .setLineSpacing(1.5f, 1.12f)
             .setIncludePad(false)
             .build()
     }
 
-    private fun drawRtlParagraph(
-        canvas: android.graphics.Canvas,
-        text: String,
-        paint: TextPaint,
-        x: Float,
-        y: Float,
-        width: Int
-    ): Float {
-        val layout = buildRtlStaticLayout(text, paint, width)
+    private fun drawLayoutAt(canvas: Canvas, layout: StaticLayout, x: Float, y: Float) {
         canvas.save()
         canvas.translate(x, y)
         layout.draw(canvas)
         canvas.restore()
+    }
+
+    private fun drawAlignedParagraph(
+        canvas: Canvas,
+        text: String,
+        paint: TextPaint,
+        x: Float,
+        y: Float,
+        width: Int,
+        alignment: Layout.Alignment,
+        direction: android.text.TextDirectionHeuristic
+    ): Float {
+        val safeText = text.ifEmpty { " " }
+        val layout = StaticLayout.Builder.obtain(safeText, 0, safeText.length, paint, width.coerceAtLeast(40))
+            .setAlignment(alignment)
+            .setTextDirection(direction)
+            .setLineSpacing(1.5f, 1.12f)
+            .setIncludePad(false)
+            .build()
+        drawLayoutAt(canvas, layout, x, y)
         return layout.height.toFloat()
     }
 
@@ -182,12 +691,13 @@ object ArabicReportExporter {
         context: Context,
         contact: ContactEntity,
         debts: List<DebtEntity>,
-        payments: List<PaymentEntity>
+        payments: List<PaymentEntity>,
+        prefs: UserAppPreferences = UserAppPreferences()
     ): File {
         val groupedTotals = debts.groupBy { it.currencyCode }.map { (cur, list) ->
             val rec = list.filter { it.direction == DebtDirection.RECEIVABLE.name }.sumOf { it.remainingMinor }
             val pay = list.filter { it.direction == DebtDirection.PAYABLE.name }.sumOf { it.remainingMinor }
-            "عملة $cur" to "مستحق لي: ${MoneyMath.formatMinor(rec, currencyCode = cur)} | مستحق عليّ: ${MoneyMath.formatMinor(pay, currencyCode = cur)}"
+            "عملة $cur" to "له: ${MoneyMath.formatMinor(rec, currencyCode = cur)} | عليه: ${MoneyMath.formatMinor(pay, currencyCode = cur)}"
         }
         val rows = debts.map { d ->
             val dir = runCatching { DebtDirection.valueOf(d.direction).labelAr }.getOrDefault(d.direction)
@@ -195,7 +705,7 @@ object ArabicReportExporter {
             StatementPdfLine(
                 dateLabel = formatDate(d.recordedAtMillis),
                 title = "$dir: ${d.reason}",
-                amountLabel = "أصل ${MoneyMath.formatMinor(d.principalMinor, currencyCode = d.currencyCode)} / متبقي ${MoneyMath.formatMinor(d.remainingMinor, currencyCode = d.currencyCode)}",
+                amountLabel = "أصل ${MoneyMath.formatMinor(d.principalMinor, currencyCode = d.currencyCode)}\nمتبقي ${MoneyMath.formatMinor(d.remainingMinor, currencyCode = d.currencyCode)}",
                 statusOrMethod = st
             )
         } + payments.map { p ->
@@ -210,10 +720,15 @@ object ArabicReportExporter {
         return generateArabicPdfReport(
             context = context,
             fileNamePrefix = "statement_${contact.id}",
-            reportTitle = "كشف حساب: ${contact.fullName}",
-            subtitle = "الهاتف: ${contact.phone}",
-            summaryLines = listOf("الاسم" to contact.fullName, "الهاتف" to contact.phone) + groupedTotals,
-            rows = rows
+            reportTitle = "كشف حساب تفصيلي: ${contact.fullName}",
+            subtitle = "الهاتف: ${contact.phone.ifBlank { "غير مسجل" }}",
+            summaryLines = listOf(
+                "الاسم" to contact.fullName,
+                "الهاتف" to contact.phone.ifBlank { "غير مسجل" }
+            ) + groupedTotals,
+            rows = rows,
+            prefs = prefs,
+            docKind = PdfDocumentKind.STATEMENT
         )
     }
 

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.VerifiedUser
@@ -111,6 +112,7 @@ fun SettingsScreen(
     onSetDefaultCurrency: (String) -> Unit,
     onAddCustomCurrency: (String, String, String, Long) -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenPrintSettings: () -> Unit,
     onOpenWhatsApp: () -> Unit,
     onOpenSms: () -> Unit,
     onOpenWorkspace: () -> Unit,
@@ -344,6 +346,7 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsNavRow("إعدادات الطباعة والفواتير PDF (القوالب والشعار والألوان)", Icons.Rounded.Print, onOpenPrintSettings)
             SettingsNavRow("إعدادات التذكيرات والإشعارات", Icons.Rounded.Notifications, onOpenNotifications)
             SettingsNavRow("إعدادات واتساب وقوالب الرسائل والتصدير", Icons.Rounded.Chat, onOpenWhatsApp)
             SettingsNavRow("إعدادات الرسائل النصية SMS", Icons.Rounded.Sms, onOpenSms)
