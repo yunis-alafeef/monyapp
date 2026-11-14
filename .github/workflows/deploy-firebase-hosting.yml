@@ -1,0 +1,28 @@
+name: Deploy PWA to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - fixes-v1
+    paths:
+      - "web/public/**"
+      - "firebase.json"
+      - ".firebaserc"
+  workflow_dispatch:
+
+jobs:
+  deploy_hosting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify PWA tests
+        run: node --test web/tests/pwa.test.mjs
+      - name: Deploy only web/public to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: gen-lang-client-0821343243
