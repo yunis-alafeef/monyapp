@@ -1,15 +1,6 @@
 name: Deploy PWA to Firebase Hosting
 
 on:
-  push:
-    branches:
-      - main
-      - master
-      - fixes-v1
-    paths:
-      - "web/public/**"
-      - "firebase.json"
-      - ".firebaserc"
   workflow_dispatch:
 
 jobs:
@@ -19,6 +10,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify PWA tests
         run: node --test web/tests/pwa.test.mjs
+      - name: Check Firebase service account secret
+        id: check_secret
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT secret is not configured yet in GitHub Settings -> Secrets -> Actions."
+            exit 1
+          fi
       - name: Deploy only web/public to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

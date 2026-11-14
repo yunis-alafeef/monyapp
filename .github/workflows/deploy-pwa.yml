@@ -1,4 +1,4 @@
-name: Deploy HISABATI PWA (iPhone & Web)
+name: Verify & Deploy HISABATI PWA
 
 on:
   push:
@@ -11,17 +11,26 @@ on:
       - ".github/workflows/deploy-pwa.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages-pwa"
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  verify-pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify PWA tests & syntax
+        run: |
+          node --check web/public/sw.js
+          node --check web/public/js/app.js
+          node --test web/tests/pwa.test.mjs
+
+  deploy-pages:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify-pwa
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -29,9 +38,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Verify PWA tests
-        run: node --test web/tests/pwa.test.mjs
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
