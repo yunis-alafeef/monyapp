@@ -28,6 +28,7 @@ import com.example.domain.model.PaymentMethod
 import com.example.domain.model.SyncStatus
 import com.example.domain.model.WorkspaceRole
 import com.example.ui.theme.AppThemeMode
+import com.example.ui.theme.AppThemePalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 data class MonthlyChartPoint(
     val monthLabel: String,
@@ -48,8 +50,8 @@ data class MonthlyChartPoint(
 )
 
 data class DashboardMetrics(
-    val defaultCurrencyCode: String = "SAR",
-    val defaultCurrencySymbol: String = "ر.س",
+    val defaultCurrencyCode: String = "YER",
+    val defaultCurrencySymbol: String = "ر.ي",
     val totalReceivableMinor: Long = 0L,
     val totalPayableMinor: Long = 0L,
     val netPositionMinor: Long = 0L,
@@ -103,6 +105,7 @@ class HisabatiViewModel(
 
     private val _isSyncing = MutableStateFlow(false)
     private val _feedback = MutableStateFlow<Pair<String, Boolean>?>(null)
+    private val inFlightKeys = mutableSetOf<String>()
 
     private val _aiMessages = MutableStateFlow<List<AiChatMessage>>(emptyList())
     val aiMessages: StateFlow<List<AiChatMessage>> = _aiMessages.asStateFlow()
@@ -155,7 +158,7 @@ class HisabatiViewModel(
     ) { primary, secondary, meta ->
         val defaultCode = primary.prefs.defaultCurrency
         val currencyMap = secondary.currencies.associateBy { it.code }
-        val targetRate = currencyMap[defaultCode]?.rateToUsdMicros ?: 266_667L
+        val targetRate = currencyMap[defaultCode]?.rateToUsdMicros ?: 1_887L
         val targetSymbol = currencyMap[defaultCode]?.symbol ?: defaultCode
 
         val now = System.currentTimeMillis()
@@ -314,15 +317,25 @@ class HisabatiViewModel(
         address: String?,
         notes: String?,
         avatarUri: String?,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onError: (String) -> Unit = {},
         onSaved: (ContactEntity) -> Unit = {}
     ) {
+        if (!inFlightKeys.add("contact_$idempotencyKey")) return
         viewModelScope.launch {
-            when (val res = repository.saveContact(currentUserId, existingId, fullName, phone, address, notes, avatarUri)) {
-                is RepositoryActionResult.Success -> {
-                    emitFeedback("تم حفظ بيانات الشخص بنجاح")
-                    onSaved(res.data)
+            try {
+                when (val res = repository.saveContact(currentUserId, existingId, fullName, phone, address, notes, avatarUri, idempotencyKey)) {
+                    is RepositoryActionResult.Success -> {
+                        emitFeedback("تم حفظ بيانات الشخص بنجاح")
+                        onSaved(res.data)
+                    }
+                    is RepositoryActionResult.Error -> {
+                        emitFeedback(res.messageAr, isError = true)
+                        onError(res.messageAr)
+                    }
                 }
-                is RepositoryActionResult.Error -> emitFeedback(res.messageAr, isError = true)
+            } finally {
+                inFlightKeys.remove("contact_$idempotencyKey")
             }
         }
     }
@@ -339,30 +352,41 @@ class HisabatiViewModel(
         attachmentUri: String?,
         notes: String?,
         installmentCount: Int,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onError: (String) -> Unit = {},
         onSaved: (DebtEntity) -> Unit = {}
     ) {
+        if (!inFlightKeys.add("debt_$idempotencyKey")) return
         viewModelScope.launch {
-            when (
-                val res = repository.addDebt(
-                    userId = currentUserId,
-                    contactId = contactId,
-                    direction = direction,
-                    principalMinor = principalMinor,
-                    currencyCode = currencyCode,
-                    recordedAtMillis = recordedAtMillis,
-                    dueAtMillis = dueAtMillis,
-                    reason = reason,
-                    paymentMethod = paymentMethod,
-                    attachmentUri = attachmentUri,
-                    notes = notes,
-                    installmentCount = installmentCount
-                )
-            ) {
-                is RepositoryActionResult.Success -> {
-                    emitFeedback("تم تسجيل الدين وإضافته إلى السجل بنجاح")
-                    onSaved(res.data)
+            try {
+                when (
+                    val res = repository.addDebt(
+                        userId = currentUserId,
+                        contactId = contactId,
+                        direction = direction,
+                        principalMinor = principalMinor,
+                        currencyCode = currencyCode,
+                        recordedAtMillis = recordedAtMillis,
+                        dueAtMillis = dueAtMillis,
+                        reason = reason,
+                        paymentMethod = paymentMethod,
+                        attachmentUri = attachmentUri,
+                        notes = notes,
+                        installmentCount = installmentCount,
+                        idempotencyKey = idempotencyKey
+                    )
+                ) {
+                    is RepositoryActionResult.Success -> {
+                        emitFeedback("تم تسجيل الدين وإصدار سند الإشعار بنجاح")
+                        onSaved(res.data)
+                    }
+                    is RepositoryActionResult.Error -> {
+                        emitFeedback(res.messageAr, isError = true)
+                        onError(res.messageAr)
+                    }
                 }
-                is RepositoryActionResult.Error -> emitFeedback(res.messageAr, isError = true)
+            } finally {
+                inFlightKeys.remove("debt_$idempotencyKey")
             }
         }
     }
@@ -394,23 +418,34 @@ class HisabatiViewModel(
         paidAtMillis: Long,
         notes: String?,
         settleRemaining: Boolean,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onError: (String) -> Unit = {},
         onSuccess: (PaymentEntity) -> Unit
     ) {
+        if (!inFlightKeys.add("pay_$idempotencyKey")) return
         viewModelScope.launch {
-            when (
-                val res = repository.recordPayment(
-                    userId = currentUserId,
-                    debtId = debtId,
-                    amountMinor = amountMinor,
-                    discountMinor = discountMinor,
-                    method = method,
-                    paidAtMillis = paidAtMillis,
-                    notes = notes,
-                    settleRemaining = settleRemaining
-                )
-            ) {
-                is RepositoryActionResult.Success -> onSuccess(res.data)
-                is RepositoryActionResult.Error -> emitFeedback(res.messageAr, isError = true)
+            try {
+                when (
+                    val res = repository.recordPayment(
+                        userId = currentUserId,
+                        debtId = debtId,
+                        amountMinor = amountMinor,
+                        discountMinor = discountMinor,
+                        method = method,
+                        paidAtMillis = paidAtMillis,
+                        notes = notes,
+                        settleRemaining = settleRemaining,
+                        idempotencyKey = idempotencyKey
+                    )
+                ) {
+                    is RepositoryActionResult.Success -> onSuccess(res.data)
+                    is RepositoryActionResult.Error -> {
+                        emitFeedback(res.messageAr, isError = true)
+                        onError(res.messageAr)
+                    }
+                }
+            } finally {
+                inFlightKeys.remove("pay_$idempotencyKey")
             }
         }
     }
@@ -513,8 +548,39 @@ class HisabatiViewModel(
         viewModelScope.launch { preferencesStore.setThemeMode(mode) }
     }
 
+    fun setThemePalette(palette: AppThemePalette) {
+        viewModelScope.launch {
+            preferencesStore.setThemePalette(palette)
+            emitFeedback("تم تطبيق ثيم: ${palette.titleAr}")
+        }
+    }
+
+    fun setCustomThemeColors(primaryHex: Long, accentHex: Long, mode: AppThemeMode? = null) {
+        viewModelScope.launch {
+            preferencesStore.setCustomThemeColors(primaryHex, accentHex, mode)
+            emitFeedback("تم تطبيق ألوان الثيم المخصص")
+        }
+    }
+
+    fun saveCustomThemePreset(nameAr: String, primaryHex: Long, accentHex: Long, darkModePreferred: Boolean) {
+        viewModelScope.launch {
+            preferencesStore.saveCustomThemePreset(nameAr, primaryHex, accentHex, darkModePreferred)
+            emitFeedback("تم حفظ الثيم المخصص وتفعيله")
+        }
+    }
+
+    fun deleteCustomThemePreset(id: String) {
+        viewModelScope.launch {
+            preferencesStore.deleteCustomThemePreset(id)
+            emitFeedback("تم حذف الثيم المخصص")
+        }
+    }
+
     fun setDefaultCurrency(code: String) {
-        viewModelScope.launch { preferencesStore.setDefaultCurrency(code) }
+        viewModelScope.launch {
+            preferencesStore.setDefaultCurrency(code)
+            emitFeedback("تم تغيير العملة الافتراضية إلى $code")
+        }
     }
 
     fun setWorkspaceConfig(type: AccountType, name: String) {
@@ -563,6 +629,40 @@ class HisabatiViewModel(
         viewModelScope.launch {
             preferencesStore.setMessagingRelaySettings(waEnabled, smsEnabled, backendUrl, waPhoneNumberId, smsSenderId)
             emitFeedback("تم حفظ إعدادات بوابة الإرسال السحابية")
+        }
+    }
+
+    fun setWhatsAppFormatSettings(
+        style: String,
+        includeHeader: Boolean,
+        includeBreakdown: Boolean,
+        includeDates: Boolean,
+        includeReason: Boolean,
+        includeFooter: Boolean,
+        customSignature: String
+    ) {
+        viewModelScope.launch {
+            preferencesStore.setWhatsAppFormatSettings(
+                style = style,
+                includeHeader = includeHeader,
+                includeBreakdown = includeBreakdown,
+                includeDates = includeDates,
+                includeReason = includeReason,
+                includeFooter = includeFooter,
+                customSignature = customSignature
+            )
+            emitFeedback("تم حفظ تنسيق رسائل واتساب بنجاح")
+        }
+    }
+
+    suspend fun exportWhatsAppConfigJson(): String = repository.exportWhatsAppConfigJson(currentUserId)
+
+    fun importWhatsAppConfigJson(jsonText: String) {
+        viewModelScope.launch {
+            when (val res = repository.importWhatsAppConfigJson(currentUserId, jsonText)) {
+                is RepositoryActionResult.Success -> emitFeedback("تم استيراد ${res.data} قالب وتنسيق واتساب بنجاح")
+                is RepositoryActionResult.Error -> emitFeedback(res.messageAr, isError = true)
+            }
         }
     }
 

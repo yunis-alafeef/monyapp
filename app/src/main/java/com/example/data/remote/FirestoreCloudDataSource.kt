@@ -26,10 +26,14 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 class FirestoreCloudDataSource(private val db: FirebaseFirestore) {
 
@@ -503,25 +507,33 @@ class FirestoreCloudDataSource(private val db: FirebaseFirestore) {
             "currencies", "reminders", "notification_logs",
             "message_templates", "audit_logs", "workspace_members"
         )
-        for (col in collections) {
-            val ref = userDoc(userId).collection(col)
-            try {
-                val snap = ref.get().await()
-                for (doc in snap.documents) {
-                    doc.reference.delete().await()
+        coroutineScope {
+            collections.map { col ->
+                async {
+                    val ref = userDoc(userId).collection(col)
+                    withTimeoutOrNull(2_000L) {
+                        try {
+                            val snap = ref.get().await()
+                            for (doc in snap.documents) {
+                                doc.reference.delete().await()
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            handleFirestoreError(e, OperationType.DELETE, ref.path)
+                        }
+                    }
                 }
+            }.awaitAll()
+        }
+        withTimeoutOrNull(1_500L) {
+            try {
+                userDoc(userId).delete().await()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                handleFirestoreError(e, OperationType.DELETE, ref.path)
+                handleFirestoreError(e, OperationType.DELETE, userDoc(userId).path)
             }
-        }
-        try {
-            userDoc(userId).delete().await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.DELETE, userDoc(userId).path)
         }
     }
 }

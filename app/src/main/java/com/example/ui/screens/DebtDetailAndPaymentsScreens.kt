@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -68,15 +70,15 @@ import com.example.domain.model.PaymentMethod
 import com.example.export.ArabicReportExporter
 import com.example.export.StatementPdfLine
 import com.example.messaging.ExternalMessagingHelper
+import com.example.notifications.NotificationHelper
 import com.example.ui.components.DebtStatusBadge
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.FintechSurfaceCard
 import com.example.ui.components.PaymentSuccessCelebrationDialog
-import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.PayableCoral
-import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.HisabatiTheme
 import com.example.ui.viewmodel.HisabatiUiState
 import java.util.Calendar
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,25 +94,29 @@ fun DebtDetailScreen(
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
+    val hc = HisabatiTheme.colors
     val contact = state.contacts.find { it.id == debt.contactId }
     val debtPayments = state.payments.filter { it.debtId == debt.id }
     val debtInstallments = state.installments.filter { it.debtId == debt.id }
     val debtAudits = state.auditLogs.filter { it.entityId == debt.id || debtPayments.any { p -> p.id == it.entityId } }
     val paidTotalMinor = debt.principalMinor - debt.remainingMinor
+    val dirEnum = runCatching { DebtDirection.valueOf(debt.direction) }.getOrDefault(DebtDirection.RECEIVABLE)
 
     var showEditDialog by remember { mutableStateOf(false) }
 
-    val reminderTemplate = state.templates.find {
-        it.type == if (debt.dueAtMillis < System.currentTimeMillis()) "OVERDUE" else "DUE_SOON"
-    }?.bodyTemplate ?: "مرحباً {الاسم}، تذكير بالمبلغ المتبقي {المبلغ} بتاريخ {التاريخ}."
-
-    val preparedReminder = ExternalMessagingHelper.interpolateTemplate(
-        template = reminderTemplate,
+    val preparedReminder = ExternalMessagingHelper.buildFormattedWhatsAppMessage(
+        prefs = state.preferences,
+        title = if (debt.dueAtMillis < System.currentTimeMillis()) "تذكير باستحقاق متأخر" else "تذكير بموعد سداد",
         contactName = debt.contactName,
-        amountFormatted = MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode),
+        directionLabel = dirEnum.labelAr,
+        principalFormatted = MoneyMath.formatMinor(debt.principalMinor, currencyCode = debt.currencyCode),
+        paidFormatted = MoneyMath.formatMinor(paidTotalMinor, currencyCode = debt.currencyCode),
         remainingFormatted = MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode),
+        recordedDateLabel = ArabicReportExporter.formatDate(debt.recordedAtMillis),
+        dueDateLabel = ArabicReportExporter.formatDate(debt.dueAtMillis),
         reason = debt.reason,
-        dateLabel = ArabicReportExporter.formatDate(debt.dueAtMillis)
+        notes = debt.notes.orEmpty(),
+        receiptNumber = "DBT-${debt.id.takeLast(6).uppercase()}"
     )
 
     Scaffold(
@@ -134,19 +140,19 @@ fun DebtDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
                 FintechSurfaceCard {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column {
-                            Text(debt.contactName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text(debt.reason, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(debt.contactName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(debt.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         DebtStatusBadge(debt.status)
                     }
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(10.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
                             Text("أصل الدين (ثابت)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -154,43 +160,43 @@ fun DebtDetailScreen(
                         }
                         Column {
                             Text("المسدد / المخصوم", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(MoneyMath.formatMinor(paidTotalMinor, currencyCode = debt.currencyCode), color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                            Text(MoneyMath.formatMinor(paidTotalMinor, currencyCode = debt.currencyCode), color = hc.positive, fontWeight = FontWeight.Bold)
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("الرصيد المتبقي", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode), color = PayableCoral, fontWeight = FontWeight.Bold)
+                            Text(MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode), color = hc.negative, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "التسجيل: ${ArabicReportExporter.formatDate(debt.recordedAtMillis)}  •  الاستحقاق: ${ArabicReportExporter.formatDate(debt.dueAtMillis)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (!debt.notes.isNullOrBlank()) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text("ملاحظات: ${debt.notes}", style = MaterialTheme.typography.bodySmall)
                     }
                     if (!debt.attachmentUri.isNullOrBlank()) {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                         AsyncImage(
                             model = debt.attachmentUri,
                             contentDescription = "مرفق الدين",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(160.dp),
+                                .height(140.dp),
                             contentScale = ContentScale.Crop
                         )
                     }
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(12.dp))
                     if (debt.remainingMinor > 0L) {
                         Button(
                             onClick = onRecordPayment,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp)
+                                .height(46.dp)
                                 .testTag("debt_detail_record_payment"),
-                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(Icons.Rounded.Payments, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
@@ -205,9 +211,12 @@ fun DebtDetailScreen(
                         OutlinedButton(
                             onClick = {
                                 val phone = contact?.phone.orEmpty()
-                                ExternalMessagingHelper.openWhatsAppChat(context, phone, preparedReminder)
+                                if (phone.isNotBlank()) {
+                                    ExternalMessagingHelper.openWhatsAppChat(context, phone, preparedReminder)
+                                } else {
+                                    ExternalMessagingHelper.openWhatsAppShareText(context, preparedReminder)
+                                }
                             },
-                            enabled = !contact?.phone.isNullOrBlank(),
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -242,7 +251,7 @@ fun DebtDetailScreen(
             }
 
             item {
-                Text("سجل الدفعات والإيصالات (${debtPayments.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("سجل الدفعات والإيصالات (${debtPayments.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             }
             if (debtPayments.isEmpty()) {
                 item {
@@ -263,9 +272,9 @@ fun DebtDetailScreen(
                                 )
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode), color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                                Text(MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode), color = hc.positive, fontWeight = FontWeight.Bold)
                                 if (p.discountMinor > 0L) {
-                                    Text("خصم: ${MoneyMath.formatMinor(p.discountMinor)}", style = MaterialTheme.typography.labelSmall)
+                                    Text("خصم: ${MoneyMath.formatMinor(p.discountMinor, currencyCode = p.currencyCode)}", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -274,7 +283,7 @@ fun DebtDetailScreen(
             }
 
             item {
-                Text("سجل التدقيق غير القابل للتلاعب (${debtAudits.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("سجل التدقيق غير القابل للتلاعب (${debtAudits.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             }
             items(debtAudits, key = { it.id }) { log ->
                 FintechSurfaceCard {
@@ -357,6 +366,7 @@ private fun EditDebtDetailsDialog(
 @Composable
 fun RecordPaymentScreen(
     debt: DebtEntity,
+    state: HisabatiUiState,
     onBack: () -> Unit,
     onSubmitPayment: (
         amountMinor: Long,
@@ -365,12 +375,16 @@ fun RecordPaymentScreen(
         paidAtMillis: Long,
         notes: String?,
         settleRemaining: Boolean,
+        idempotencyKey: String,
+        onError: (String) -> Unit,
         onSuccess: (PaymentEntity) -> Unit
     ) -> Unit,
     onViewReceipt: (String) -> Unit
 ) {
-    BackHandler(onBack = onBack)
+    BackHandler(onBack = { onBack() })
     val context = LocalContext.current
+    val hc = HisabatiTheme.colors
+    val contact = state.contacts.find { it.id == debt.contactId }
     var amountText by remember { mutableStateOf(MoneyMath.minorToBigDecimal(debt.remainingMinor).toPlainString()) }
     var discountText by remember { mutableStateOf("0") }
     var method by remember { mutableStateOf(PaymentMethod.CASH) }
@@ -378,6 +392,8 @@ fun RecordPaymentScreen(
     var notes by remember { mutableStateOf("") }
     var settleRemaining by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+    val formSubmissionKey = remember(debt.id) { UUID.randomUUID().toString() }
     var completedPayment by remember { mutableStateOf<PaymentEntity?>(null) }
 
     Scaffold(
@@ -385,7 +401,7 @@ fun RecordPaymentScreen(
             TopAppBar(
                 title = { Text("تسجيل دفعة مالية") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (!isSaving) onBack() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع")
                     }
                 }
@@ -397,15 +413,15 @@ fun RecordPaymentScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             FintechSurfaceCard {
-                Text(debt.contactName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(debt.contactName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
                     "الرصيد المتبقي الحالي: ${MoneyMath.formatMinor(debt.remainingMinor, currencyCode = debt.currencyCode)}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PayableCoral,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = hc.negative,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -413,20 +429,23 @@ fun RecordPaymentScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = { amountText = MoneyMath.minorToBigDecimal(debt.remainingMinor).toPlainString() },
+                    enabled = !isSaving,
                     modifier = Modifier.weight(1f)
                 ) { Text("سداد كامل") }
                 OutlinedButton(
                     onClick = { amountText = MoneyMath.minorToBigDecimal(debt.remainingMinor / 2).toPlainString() },
+                    enabled = !isSaving,
                     modifier = Modifier.weight(1f)
                 ) { Text("نصف المبلغ") }
             }
 
             OutlinedTextField(
                 value = amountText,
-                onValueChange = { amountText = it },
+                onValueChange = { if (!isSaving) amountText = it },
                 label = { Text("المبلغ المدفوع (${debt.currencyCode}) *") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                enabled = !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("payment_amount_input")
@@ -434,24 +453,25 @@ fun RecordPaymentScreen(
 
             OutlinedTextField(
                 value = discountText,
-                onValueChange = { discountText = it },
+                onValueChange = { if (!isSaving) discountText = it },
                 label = { Text("خصم متفق عليه / تسوية (اختياري)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = settleRemaining, onCheckedChange = { settleRemaining = it })
+                Checkbox(checked = settleRemaining, onCheckedChange = { if (!isSaving) settleRemaining = it })
                 Text("اعتبار العملية تسوية نهائية للدين", style = MaterialTheme.typography.bodyMedium)
             }
 
             Text("طريقة الدفع", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 PaymentMethod.entries.forEach { pm ->
                     FilterChip(
                         selected = method == pm,
-                        onClick = { method = pm },
+                        onClick = { if (!isSaving) method = pm },
                         label = { Text(pm.labelAr) }
                     )
                 }
@@ -464,6 +484,7 @@ fun RecordPaymentScreen(
                         paidAtMillis = Calendar.getInstance().apply { set(y, m, d, 12, 0, 0) }.timeInMillis
                     }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
                 },
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
@@ -473,18 +494,20 @@ fun RecordPaymentScreen(
 
             OutlinedTextField(
                 value = notes,
-                onValueChange = { notes = it },
+                onValueChange = { if (!isSaving) notes = it },
                 label = { Text("ملاحظات الدفع") },
                 minLines = 2,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             )
 
             if (errorMsg != null) {
-                Text(errorMsg!!, color = PayableCoral, style = MaterialTheme.typography.bodySmall)
+                Text(errorMsg!!, color = hc.negative, style = MaterialTheme.typography.bodySmall)
             }
 
             Button(
                 onClick = {
+                    if (isSaving) return@Button
                     val amt = MoneyMath.parseMajorToMinor(amountText) ?: -1L
                     val disc = MoneyMath.parseMajorToMinor(discountText) ?: 0L
                     if (amt < 0L || disc < 0L || (amt + disc) <= 0L) {
@@ -496,26 +519,82 @@ fun RecordPaymentScreen(
                         return@Button
                     }
                     errorMsg = null
-                    onSubmitPayment(amt, disc, method, paidAtMillis, notes, settleRemaining) { created ->
-                        completedPayment = created
-                    }
+                    isSaving = true
+                    onSubmitPayment(
+                        amt,
+                        disc,
+                        method,
+                        paidAtMillis,
+                        notes,
+                        settleRemaining,
+                        formSubmissionKey,
+                        { msg ->
+                            isSaving = false
+                            errorMsg = msg
+                        },
+                        { created ->
+                            isSaving = false
+                            NotificationHelper.showReminderNotification(
+                                context = context,
+                                notificationId = created.id.hashCode(),
+                                title = "إيصال سداد رقم ${created.receiptNumber}",
+                                body = "تم استلام ${MoneyMath.formatMinor(created.amountMinor, currencyCode = created.currencyCode)} من ${debt.contactName}"
+                            )
+                            completedPayment = created
+                        }
+                    )
                 },
+                enabled = !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
+                    .height(48.dp)
                     .testTag("confirm_payment_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text("تأكيد وإصدار الإيصال", fontWeight = FontWeight.Bold)
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("جاري الحفظ...", fontWeight = FontWeight.Bold)
+                } else {
+                    Text("تأكيد وإصدار الإيصال", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
 
     completedPayment?.let { payment ->
+        val dirEnum = runCatching { DebtDirection.valueOf(debt.direction) }.getOrDefault(DebtDirection.RECEIVABLE)
+        val methodLabel = runCatching { PaymentMethod.valueOf(payment.method).labelAr }.getOrDefault(payment.method)
+        val waMessage = ExternalMessagingHelper.buildFormattedWhatsAppMessage(
+            prefs = state.preferences,
+            title = "سند قبض / إيصال سداد معتمد",
+            contactName = debt.contactName,
+            directionLabel = dirEnum.labelAr,
+            principalFormatted = MoneyMath.formatMinor(debt.principalMinor, currencyCode = payment.currencyCode),
+            paidFormatted = MoneyMath.formatMinor(payment.amountMinor, currencyCode = payment.currencyCode),
+            remainingFormatted = MoneyMath.formatMinor(payment.balanceAfterMinor, currencyCode = payment.currencyCode),
+            recordedDateLabel = ArabicReportExporter.formatDate(payment.paidAtMillis),
+            reason = debt.reason,
+            notes = payment.notes.orEmpty(),
+            receiptNumber = payment.receiptNumber,
+            paymentMethodLabel = methodLabel
+        )
         PaymentSuccessCelebrationDialog(
             receiptNumber = payment.receiptNumber,
             amountFormatted = MoneyMath.formatMinor(payment.amountMinor, currencyCode = payment.currencyCode),
             remainingFormatted = MoneyMath.formatMinor(payment.balanceAfterMinor, currencyCode = payment.currencyCode),
+            onSendWhatsApp = {
+                val phone = contact?.phone.orEmpty()
+                if (phone.isNotBlank()) {
+                    ExternalMessagingHelper.openWhatsAppChat(context, phone, waMessage)
+                } else {
+                    ExternalMessagingHelper.openWhatsAppShareText(context, waMessage)
+                }
+            },
             onViewReceipt = {
                 val id = payment.id
                 completedPayment = null
@@ -540,6 +619,7 @@ fun InstallmentsScreen(
     onReschedule: (installmentId: String, newDueMillis: Long, newAmountMinor: Long, reason: String) -> Unit
 ) {
     BackHandler(onBack = onBack)
+    val hc = HisabatiTheme.colors
     var editingInst by remember { mutableStateOf<InstallmentEntity?>(null) }
 
     Scaffold(
@@ -555,7 +635,7 @@ fun InstallmentsScreen(
         }
     ) { padding ->
         if (installments.isEmpty()) {
-            Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+            Column(modifier = Modifier.padding(padding).padding(14.dp)) {
                 EmptyStateCard(
                     icon = Icons.Rounded.CalendarMonth,
                     title = "لا توجد أقساط مجدولة",
@@ -567,8 +647,8 @@ fun InstallmentsScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(installments, key = { it.id }) { inst ->
                     val status = runCatching { InstallmentStatus.valueOf(inst.status) }.getOrDefault(InstallmentStatus.PENDING)
@@ -587,9 +667,9 @@ fun InstallmentsScreen(
                                 Text(
                                     status.labelAr,
                                     color = when (status) {
-                                        InstallmentStatus.PAID -> EmeraldPrimary
-                                        InstallmentStatus.OVERDUE -> PayableCoral
-                                        InstallmentStatus.PENDING -> WarningAmber
+                                        InstallmentStatus.PAID -> hc.positive
+                                        InstallmentStatus.OVERDUE -> hc.negative
+                                        InstallmentStatus.PENDING -> hc.warning
                                     },
                                     fontWeight = FontWeight.Bold
                                 )
@@ -647,6 +727,7 @@ fun TransactionDetailScreen(
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
+    val hc = HisabatiTheme.colors
     val methodLabel = runCatching { PaymentMethod.valueOf(payment.method).labelAr }.getOrDefault(payment.method)
 
     fun buildReceiptPdf() = ArabicReportExporter.generateArabicPdfReport(
@@ -689,12 +770,12 @@ fun TransactionDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             FintechSurfaceCard {
-                Text("إيصال دفع معتمد", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = EmeraldPrimary)
-                Spacer(Modifier.height(10.dp))
+                Text("إيصال دفع معتمد", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = hc.positive)
+                Spacer(Modifier.height(8.dp))
                 ReceiptRow("رقم العملية", payment.receiptNumber)
                 ReceiptRow("الطرف", debt?.contactName ?: "-")
                 ReceiptRow("المبلغ المدفوع", MoneyMath.formatMinor(payment.amountMinor, currencyCode = payment.currencyCode))
@@ -708,14 +789,14 @@ fun TransactionDetailScreen(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = {
                         val pdf = buildReceiptPdf()
                         ArabicReportExporter.shareFile(context, pdf, "application/pdf", "مشاركة الإيصال")
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Rounded.Share, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
@@ -742,10 +823,10 @@ private fun ReceiptRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
     }
 }

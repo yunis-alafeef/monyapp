@@ -73,7 +73,7 @@
 
 ### 2. دقة محاسبية والعمل متعدد العملات
 - معالجة جميع المبالغ المالية عبر وحدات صغرى (`Long` minor units) و`BigDecimal` عبر [`MoneyMath`](app/src/main/java/com/example/domain/model/MoneyMath.kt) دون استخدام `Float` أو `Double` لمنع أي أخطاء تقريب.
-- دعم العملات الافتراضية (**SAR, YER, USD, AED, EGP**) مع إمكانية إضافة عملات مخصصة وتحديث أسعار الصرف.
+- العملة الافتراضية هي **الريال اليمني (YER)** مع دعم (**SAR, USD, AED, EGP**) وإمكانية التبديل السريع من شارة العملة `(C)` في لوحة التحكم أو الإعدادات وإضافة عملات مخصصة وتحديث أسعار الصرف.
 
 ### 3. إدارة الديون، الأقساط، والدفعات
 - تصنيف واضح للديون (**مستحقة لي** / **مستحقة عليّ** / **المتأخرة**) مع فلاتر الحالة والعملة.
@@ -91,9 +91,9 @@
 - تصدير جداول متوافقة مع Microsoft Excel بالعربية (**CSV UTF-8 BOM**).
 - الطباعة المباشرة عبر `PrintManager` والمشاركة الفورية عبر `FileProvider`.
 
-### 6. التذكيرات، واتساب، و SMS
-- تذكيرات مجدولة محلياً في الخلفية عبر `ReminderWorker` و`BootReceiver`.
-- قوالب رسائل عربية قابلة للتعديل مع متغيرات تلقائية (`{الاسم}`, `{المبلغ}`, `{المتبقي}`, `{التاريخ}`, `{رقم_الإيصال}`).
+### 6. التذكيرات، وسندات الإشعار، وواتساب، و SMS
+- تذكيرات مجدولة محلياً في الخلفية عبر `ReminderWorker` و`BootReceiver`، مع إصدار **سند إشعار احترافي** وإشعار فوري عند كل عملية حفظ.
+- تخصيص متقدم لشكل رسائل واتساب (رسمي، ودي، عاجل)، والتحكم في الحقول الظاهرة، ومعاينة فورية، مع إمكانية **تصدير واستيراد القوالب والتنسيقات (JSON)** من الإعدادات.
 - إرسال فوري عبر تطبيق **واتساب** أو **SMS** على الهاتف، أو عبر خادم **WhatsApp Business Cloud API** و **SMS Gateway** المرفق.
 
 ### 7. المساعد المالي الذكي (Firebase AI Logic)
@@ -126,7 +126,7 @@ app/src/main/java/com/example/
     ├── components/  # FintechComponents & AnmaSoftFooterBar
     ├── navigation/  # Navigation Compose Adaptive Shell (NavigationBar / Rail)
     ├── screens/     # 30 شاشة عربية متكاملة RTL
-    ├── theme/       # Royal Navy & Emerald Design System + IBM Plex Sans Arabic
+    ├── theme/       # نظام ثيمات متعدد (فاتح ساطع / داكن فاخر / مخصص) + IBM Plex Sans Arabic
     └── viewmodel/   # HisabatiViewModel (StateFlow Metrics & Flows)
 ```
 

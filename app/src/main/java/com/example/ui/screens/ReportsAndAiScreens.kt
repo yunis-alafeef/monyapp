@@ -66,10 +66,7 @@ import com.example.export.StatementPdfLine
 import com.example.ui.components.DebtListCard
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.FintechSurfaceCard
-import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.GoldAccent
-import com.example.ui.theme.NavyDeep
-import com.example.ui.theme.PayableCoral
+import com.example.ui.theme.HisabatiTheme
 import com.example.ui.viewmodel.AiChatMessage
 import com.example.ui.viewmodel.HisabatiUiState
 
@@ -90,6 +87,7 @@ fun ReportsScreen(
     onOpenStatement: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val hc = HisabatiTheme.colors
     var selectedKind by remember { mutableStateOf(ReportKind.POSITION) }
     var lastExportMessage by remember { mutableStateOf<String?>(null) }
 
@@ -164,8 +162,8 @@ fun ReportsScreen(
                 FintechSurfaceCard {
                     Text(selectedKind.labelAr, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(10.dp))
-                    Text("إجمالي المستحق لي: ${MoneyMath.formatMinor(state.metrics.totalReceivableMinor, sym)}", style = MaterialTheme.typography.bodyMedium, color = EmeraldPrimary)
-                    Text("إجمالي المستحق عليّ: ${MoneyMath.formatMinor(state.metrics.totalPayableMinor, sym)}", style = MaterialTheme.typography.bodyMedium, color = PayableCoral)
+                    Text("إجمالي المستحق لي: ${MoneyMath.formatMinor(state.metrics.totalReceivableMinor, sym)}", style = MaterialTheme.typography.bodyMedium, color = hc.positive)
+                    Text("إجمالي المستحق عليّ: ${MoneyMath.formatMinor(state.metrics.totalPayableMinor, sym)}", style = MaterialTheme.typography.bodyMedium, color = hc.negative)
                     Text("صافي المركز المالي: ${MoneyMath.formatSignedMinor(state.metrics.netPositionMinor, sym)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("عدد البنود المطابقة: ${if (selectedKind == ReportKind.PAYMENTS) state.payments.size else filteredDebts.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -192,7 +190,7 @@ fun ReportsScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("export_pdf_report_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = NavyDeep)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(Icons.Rounded.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
@@ -241,7 +239,7 @@ fun ReportsScreen(
                     }
                     if (lastExportMessage != null) {
                         Spacer(Modifier.height(6.dp))
-                        Text(lastExportMessage!!, style = MaterialTheme.typography.bodySmall, color = EmeraldPrimary)
+                        Text(lastExportMessage!!, style = MaterialTheme.typography.bodySmall, color = hc.positive)
                     }
                 }
             }
@@ -266,7 +264,7 @@ fun ReportsScreen(
                                 Text(debt?.contactName ?: "دفعة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 Text("إيصال ${p.receiptNumber} • ${ArabicReportExporter.formatDate(p.paidAtMillis)}", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text(MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode), color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                            Text(MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode), color = hc.positive, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -414,7 +412,7 @@ fun StatementScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("statement_share_pdf_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
@@ -454,6 +452,7 @@ fun AiAssistantScreen(
     onToggleConsent: (Boolean) -> Unit,
     onAskQuestion: (String) -> Unit
 ) {
+    val hc = HisabatiTheme.colors
     var input by remember { mutableStateOf("") }
     val quickPrompts = listOf(
         "ما إجمالي المستحق لي؟",
@@ -515,7 +514,7 @@ fun AiAssistantScreen(
                         selected = false,
                         onClick = { onAskQuestion(prompt) },
                         label = { Text(prompt) },
-                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(16.dp)) }
+                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = hc.accent, modifier = Modifier.size(16.dp)) }
                     )
                 }
             }
@@ -541,8 +540,8 @@ fun AiAssistantScreen(
                     ) {
                         Surface(
                             color = when {
-                                msg.isError -> PayableCoral.copy(alpha = 0.14f)
-                                msg.isUser -> NavyDeep
+                                msg.isError -> hc.negative.copy(alpha = 0.14f)
+                                msg.isUser -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.surface
                             },
                             shape = RoundedCornerShape(18.dp),
@@ -552,8 +551,8 @@ fun AiAssistantScreen(
                             Text(
                                 text = msg.text,
                                 color = when {
-                                    msg.isError -> PayableCoral
-                                    msg.isUser -> Color.White
+                                    msg.isError -> hc.negative
+                                    msg.isUser -> MaterialTheme.colorScheme.onPrimary
                                     else -> MaterialTheme.colorScheme.onSurface
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
@@ -602,9 +601,9 @@ fun AiAssistantScreen(
                     },
                     enabled = !isBusy && input.isNotBlank(),
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(EmeraldPrimary)
+                        .background(hc.positive)
                         .testTag("ai_send_button")
                 ) {
                     Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "إرسال", tint = Color.White)

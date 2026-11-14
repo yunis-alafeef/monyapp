@@ -83,8 +83,8 @@ object MoneyMath {
     }
 
     fun defaultCurrenciesSeed(): List<DefaultCurrencySpec> = listOf(
-        DefaultCurrencySpec("SAR", "الريال السعودي", "ر.س", 266_667L, false),
         DefaultCurrencySpec("YER", "الريال اليمني", "ر.ي", 1_887L, false),
+        DefaultCurrencySpec("SAR", "الريال السعودي", "ر.س", 266_667L, false),
         DefaultCurrencySpec("USD", "الدولار الأمريكي", "$", 1_000_000L, false),
         DefaultCurrencySpec("AED", "الدرهم الإماراتي", "د.إ", 272_294L, false),
         DefaultCurrencySpec("EGP", "الجنيه المصري", "ج.م", 20_408L, false)

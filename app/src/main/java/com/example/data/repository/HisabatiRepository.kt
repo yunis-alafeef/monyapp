@@ -30,9 +30,15 @@ import com.example.domain.model.RepeatType
 import com.example.domain.model.SyncStatus
 import com.example.domain.model.WorkspaceRole
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -52,6 +58,8 @@ class HisabatiRepository(
         cloud = FirestoreCloudDataSource(context),
         preferencesStore = PreferencesStore(context)
     )
+
+    private val writeMutex = Mutex()
 
     fun observeContacts(userId: String): Flow<List<ContactEntity>> = db.contactDao().observeContacts(userId)
     fun observeDebts(userId: String): Flow<List<DebtEntity>> = db.debtDao().observeDebts(userId)
@@ -98,7 +106,7 @@ class HisabatiRepository(
                     userId = userId,
                     type = "DUE_SOON",
                     titleAr = "تذكير بقرب موعد الاستحقاق",
-                    bodyTemplate = "مرحباً {الاسم}، نود تذكيركم بأن موعد استحقاق المبلغ المتبقي ({المبلغ}) الخاص بـ ({السبب}) يحين بتاريخ {التاريخ}. شكراً لتعاونكم.",
+                    bodyTemplate = "*تذكير بموعد استحقاق مالي*\n──────────────\nالأخ الكريم / *{الاسم}*،\nنود تذكيركم بلطف بموعد استحقاق القيد المالي المسجل لدينا:\n▪️ *المبلغ المستحق:* {المبلغ}\n▪️ *البيان:* {السبب}\n⏰ *تاريخ الاستحقاق:* {التاريخ}\n──────────────\nشكراً لتعاونكم وثقتكم.",
                     channel = MessageChannel.BOTH.name,
                     updatedAtMillis = now
                 ),
@@ -107,7 +115,7 @@ class HisabatiRepository(
                     userId = userId,
                     type = "OVERDUE",
                     titleAr = "إشعار بتأخر السداد",
-                    bodyTemplate = "الأخ الكريم {الاسم}، نرجو التكرم بمراجعة المبلغ المستحق ({المبلغ}) والمتأخر عن موعد استحقاقه بتاريخ {التاريخ}. نأمل التواصل لتنسيق السداد.",
+                    bodyTemplate = "*تنبيه باستحقاق متأخر*\n──────────────\nالأخ الكريم / *{الاسم}*،\nنرجو التكرم بمراجعة المبلغ المستحق والمتأخر عن موعد سداده:\n▪️ *المتبقي:* {المتبقي}\n▪️ *البيان:* {السبب}\n⏰ *كان مستحقاً بتاريخ:* {التاريخ}\n──────────────\nنأمل التواصل لتنسيق السداد في أقرب فرصة.",
                     channel = MessageChannel.BOTH.name,
                     updatedAtMillis = now
                 ),
@@ -115,8 +123,8 @@ class HisabatiRepository(
                     id = "tpl_payment_receipt",
                     userId = userId,
                     type = "PAYMENT_RECEIPT",
-                    titleAr = "تأكيد استلام دفعة",
-                    bodyTemplate = "تم بحمد الله استلام دفعة بمبلغ {المبلغ} بتاريخ {التاريخ} (إيصال رقم {رقم_الإيصال}). الرصيد المتبقي الحالي: {المتبقي}.",
+                    titleAr = "سند استلام دفعة مالية",
+                    bodyTemplate = "*سند إشعار باستلام دفعة*\n──────────────\nالأخ الكريم / *{الاسم}*،\nتم بحمد الله استلام دفعتكم بنجاح:\n▪️ *رقم الإيصال:* `{رقم_الإيصال}`\n▪️ *المبلغ المدفوع:* {المبلغ}\n▪️ *الرصيد المتبقي:* {المتبقي}\n📅 *التاريخ:* {التاريخ}\n──────────────\nشكراً لالتزامكم وتعاملنا الدائم.",
                     channel = MessageChannel.WHATSAPP.name,
                     updatedAtMillis = now
                 ),
@@ -125,7 +133,7 @@ class HisabatiRepository(
                     userId = userId,
                     type = "STATEMENT",
                     titleAr = "كشف حساب مختصر",
-                    bodyTemplate = "كشف حساب {الاسم} من تطبيق حساباتي:\nإجمالي المستحقات: {الإجمالي}\nالمبلغ المسدد: {المسدد}\nالرصيد المتبقي: {المتبقي}.",
+                    bodyTemplate = "*ملخص كشف الحساب*\n──────────────\nالأخ الكريم / *{الاسم}*،\n▪️ *إجمالي المستحقات:* {الإجمالي}\n▪️ *إجمالي المسدد:* {المسدد}\n▪️ *الرصيد المتبقي:* *{المتبقي}*\n──────────────\nتطبيق حساباتي للإدارة المالية.",
                     channel = MessageChannel.WHATSAPP.name,
                     updatedAtMillis = now
                 ),
@@ -134,7 +142,7 @@ class HisabatiRepository(
                     userId = userId,
                     type = "THANK_YOU",
                     titleAr = "رسالة شكر بعد التسديد الكامل",
-                    bodyTemplate = "شكراً جزيلاً {الاسم} على التزامكم وسداد كامل المبلغ ({المبلغ}). نسعد دائماً بالتعامل معكم.",
+                    bodyTemplate = "*شهادة سداد وشكر*\n──────────────\nالأخ الكريم / *{الاسم}*،\nشكراً جزيلاً على التزامكم وسداد كامل المبلغ ({المبلغ}).\nنسعد دائماً بالتعامل معكم.",
                     channel = MessageChannel.WHATSAPP.name,
                     updatedAtMillis = now
                 )
@@ -164,15 +172,17 @@ class HisabatiRepository(
 
         // Best-effort cloud profile initialization (never blocks offline startup)
         val prefs = preferencesStore.preferencesFlow.first()
-        runCatching {
-            cloud.ensureUserProfile(
-                userId = userId,
-                displayName = displayName,
-                email = email,
-                defaultCurrency = prefs.defaultCurrency,
-                accountType = prefs.accountType,
-                aiConsentGranted = prefs.aiConsentGranted
-            )
+        withTimeoutOrNull(1_000L) {
+            runCatching {
+                cloud.ensureUserProfile(
+                    userId = userId,
+                    displayName = displayName,
+                    email = email,
+                    defaultCurrency = prefs.defaultCurrency,
+                    accountType = prefs.accountType,
+                    aiConsentGranted = prefs.aiConsentGranted
+                )
+            }
         }
     }
 
@@ -193,35 +203,47 @@ class HisabatiRepository(
         phone: String,
         address: String?,
         notes: String?,
-        avatarUri: String?
+        avatarUri: String?,
+        idempotencyKey: String? = null
     ): RepositoryActionResult<ContactEntity> {
         if (fullName.isBlank()) return RepositoryActionResult.Error("يرجى إدخال الاسم الكامل للشخص")
-        val now = System.currentTimeMillis()
-        val id = existingId ?: "cnt_${UUID.randomUUID().toString().replace("-", "").take(16)}"
-        val previous = existingId?.let { db.contactDao().getById(it, userId) }
-        val contact = ContactEntity(
-            id = id,
-            userId = userId,
-            fullName = fullName.trim(),
-            phone = phone.trim(),
-            address = address?.trim()?.takeIf { it.isNotEmpty() },
-            notes = notes?.trim()?.takeIf { it.isNotEmpty() },
-            avatarUri = avatarUri?.takeIf { it.isNotEmpty() },
-            createdAtMillis = previous?.createdAtMillis ?: now,
-            updatedAtMillis = now,
-            syncStatus = SyncStatus.PENDING.name
-        )
-        db.withTransaction {
-            db.contactDao().upsert(contact)
-            enqueueOutbox(userId, "contact", contact.id, "UPSERT")
-            recordAudit(
+        val contact = writeMutex.withLock {
+            val now = System.currentTimeMillis()
+            val id = existingId
+                ?: idempotencyKey?.takeIf { it.isNotBlank() }?.let { "cnt_${it.replace("-", "").take(16)}" }
+                ?: "cnt_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+            val alreadyCreatedByIdem = if (existingId == null && !idempotencyKey.isNullOrBlank()) {
+                db.contactDao().getById(id, userId)
+            } else null
+            if (alreadyCreatedByIdem != null) {
+                return@withLock alreadyCreatedByIdem
+            }
+            val previous = existingId?.let { db.contactDao().getById(it, userId) }
+            val created = ContactEntity(
+                id = id,
                 userId = userId,
-                action = if (previous == null) "إضافة شخص" else "تعديل بيانات شخص",
-                entityType = "CONTACT",
-                entityId = contact.id,
-                details = "${contact.fullName} - ${contact.phone}",
-                reason = null
+                fullName = fullName.trim(),
+                phone = phone.trim(),
+                address = address?.trim()?.takeIf { it.isNotEmpty() },
+                notes = notes?.trim()?.takeIf { it.isNotEmpty() },
+                avatarUri = avatarUri?.takeIf { it.isNotEmpty() },
+                createdAtMillis = previous?.createdAtMillis ?: now,
+                updatedAtMillis = now,
+                syncStatus = SyncStatus.PENDING.name
             )
+            db.withTransaction {
+                db.contactDao().upsert(created)
+                enqueueOutbox(userId, "contact", created.id, "UPSERT")
+                recordAudit(
+                    userId = userId,
+                    action = if (previous == null) "إضافة شخص" else "تعديل بيانات شخص",
+                    entityType = "CONTACT",
+                    entityId = created.id,
+                    details = "${created.fullName} - ${created.phone}",
+                    reason = null
+                )
+            }
+            created
         }
         syncPendingBestEffort(userId)
         return RepositoryActionResult.Success(contact)
@@ -239,118 +261,130 @@ class HisabatiRepository(
         paymentMethod: String?,
         attachmentUri: String?,
         notes: String?,
-        installmentCount: Int = 0
+        installmentCount: Int = 0,
+        idempotencyKey: String? = null
     ): RepositoryActionResult<DebtEntity> {
-        val actor = requirePermission(userId) { it.canAddDebt }
-            ?: return RepositoryActionResult.Error("لا تملك صلاحية إضافة ديون في مساحة العمل الحالية")
-        if (principalMinor <= 0L) return RepositoryActionResult.Error("يجب أن يكون المبلغ أكبر من صفر")
-        val contact = db.contactDao().getById(contactId, userId)
-            ?: return RepositoryActionResult.Error("يرجى اختيار شخص صالح")
+        val result = writeMutex.withLock {
+            val actor = requirePermission(userId) { it.canAddDebt }
+                ?: return@withLock RepositoryActionResult.Error("لا تملك صلاحية إضافة ديون في مساحة العمل الحالية")
+            if (principalMinor <= 0L) return@withLock RepositoryActionResult.Error("يجب أن يكون المبلغ أكبر من صفر")
+            val contact = db.contactDao().getById(contactId, userId)
+                ?: return@withLock RepositoryActionResult.Error("يرجى اختيار شخص صالح")
 
-        val currency = db.currencyDao().getCurrenciesOnce(userId).find { it.code == currencyCode }
-        val rateMicros = currency?.rateToUsdMicros ?: 1_000_000L
-        val now = System.currentTimeMillis()
-        val debtId = "dbt_${UUID.randomUUID().toString().replace("-", "").take(16)}"
-        val initialStatus = when {
-            installmentCount > 1 -> DebtStatus.SCHEDULED
-            dueAtMillis < now -> DebtStatus.OVERDUE
-            else -> DebtStatus.OPEN
-        }
-        val debt = DebtEntity(
-            id = debtId,
-            userId = userId,
-            contactId = contact.id,
-            contactName = contact.fullName,
-            direction = direction.name,
-            principalMinor = principalMinor,
-            remainingMinor = principalMinor,
-            currencyCode = currencyCode,
-            exchangeRateMicros = rateMicros,
-            recordedAtMillis = recordedAtMillis,
-            dueAtMillis = dueAtMillis,
-            reason = reason.trim().ifEmpty { "معاملة مالية" },
-            paymentMethod = paymentMethod?.trim()?.takeIf { it.isNotEmpty() },
-            attachmentUri = attachmentUri?.takeIf { it.isNotEmpty() },
-            notes = notes?.trim()?.takeIf { it.isNotEmpty() },
-            status = initialStatus.name,
-            version = 1L,
-            createdAtMillis = now,
-            updatedAtMillis = now,
-            syncStatus = SyncStatus.PENDING.name
-        )
-
-        db.withTransaction {
-            db.debtDao().upsert(debt)
-            enqueueOutbox(userId, "debt", debt.id, "UPSERT")
-
-            if (installmentCount > 1) {
-                val basePart = principalMinor / installmentCount
-                val remainder = principalMinor % installmentCount
-                val intervalMillis = ((dueAtMillis - recordedAtMillis).coerceAtLeast(86_400_000L)) / installmentCount
-                for (i in 1..installmentCount) {
-                    val amount = if (i == installmentCount) basePart + remainder else basePart
-                    val instDue = recordedAtMillis + (intervalMillis * i)
-                    val inst = InstallmentEntity(
-                        id = "ins_${UUID.randomUUID().toString().replace("-", "").take(14)}",
-                        userId = userId,
-                        debtId = debt.id,
-                        installmentNumber = i,
-                        amountMinor = amount,
-                        paidMinor = 0L,
-                        dueAtMillis = instDue,
-                        status = if (instDue < now) InstallmentStatus.OVERDUE.name else InstallmentStatus.PENDING.name,
-                        updatedAtMillis = now
-                    )
-                    db.installmentDao().upsert(inst)
-                    enqueueOutbox(userId, "installment", inst.id, "UPSERT")
+            val currency = db.currencyDao().getCurrenciesOnce(userId).find { it.code == currencyCode }
+            val rateMicros = currency?.rateToUsdMicros ?: 1_000_000L
+            val now = System.currentTimeMillis()
+            val debtId = idempotencyKey?.takeIf { it.isNotBlank() }?.let { "dbt_${it.replace("-", "").take(16)}" }
+                ?: "dbt_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+            if (!idempotencyKey.isNullOrBlank()) {
+                db.debtDao().getById(debtId, userId)?.let { existingDebt ->
+                    return@withLock RepositoryActionResult.Success(existingDebt)
                 }
             }
-
-            // Auto-create default reminder 24h before due date
-            val reminderTime = (dueAtMillis - 86_400_000L).coerceAtLeast(now + 3_600_000L)
-            val reminder = ReminderEntity(
-                id = "rem_${UUID.randomUUID().toString().replace("-", "").take(14)}",
+            val initialStatus = when {
+                installmentCount > 1 -> DebtStatus.SCHEDULED
+                dueAtMillis < now -> DebtStatus.OVERDUE
+                else -> DebtStatus.OPEN
+            }
+            val debt = DebtEntity(
+                id = debtId,
                 userId = userId,
-                debtId = debt.id,
                 contactId = contact.id,
-                title = "تذكير استحقاق: ${contact.fullName}",
-                message = "موعد استحقاق مبلغ ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)} (${debt.reason})",
-                triggerAtMillis = reminderTime,
-                repeatType = RepeatType.ONCE.name,
-                priority = ReminderPriority.HIGH.name,
-                isEnabled = true,
-                isSent = false,
+                contactName = contact.fullName,
+                direction = direction.name,
+                principalMinor = principalMinor,
+                remainingMinor = principalMinor,
+                currencyCode = currencyCode,
+                exchangeRateMicros = rateMicros,
+                recordedAtMillis = recordedAtMillis,
+                dueAtMillis = dueAtMillis,
+                reason = reason.trim().ifEmpty { "معاملة مالية" },
+                paymentMethod = paymentMethod?.trim()?.takeIf { it.isNotEmpty() },
+                attachmentUri = attachmentUri?.takeIf { it.isNotEmpty() },
+                notes = notes?.trim()?.takeIf { it.isNotEmpty() },
+                status = initialStatus.name,
+                version = 1L,
                 createdAtMillis = now,
-                updatedAtMillis = now
+                updatedAtMillis = now,
+                syncStatus = SyncStatus.PENDING.name
             )
-            db.reminderDao().upsert(reminder)
-            enqueueOutbox(userId, "reminder", reminder.id, "UPSERT")
 
-            val notif = NotificationLogEntity(
-                id = "ntf_${UUID.randomUUID().toString().replace("-", "").take(14)}",
-                userId = userId,
-                title = "تم تسجيل ${direction.labelAr}",
-                body = "${contact.fullName} - ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)}",
-                category = "DEBT_CREATED",
-                relatedDebtId = debt.id,
-                isRead = false,
-                createdAtMillis = now
-            )
-            db.notificationLogDao().upsert(notif)
-            enqueueOutbox(userId, "notification", notif.id, "UPSERT")
+            db.withTransaction {
+                db.debtDao().upsert(debt)
+                enqueueOutbox(userId, "debt", debt.id, "UPSERT")
 
-            recordAudit(
-                userId = userId,
-                actorName = actor.displayName,
-                action = "إضافة دين جديد",
-                entityType = "DEBT",
-                entityId = debt.id,
-                details = "${direction.labelAr} بقيمة ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)} مع ${contact.fullName}",
-                reason = debt.reason
-            )
+                if (installmentCount > 1) {
+                    val basePart = principalMinor / installmentCount
+                    val remainder = principalMinor % installmentCount
+                    val intervalMillis = ((dueAtMillis - recordedAtMillis).coerceAtLeast(86_400_000L)) / installmentCount
+                    for (i in 1..installmentCount) {
+                        val amount = if (i == installmentCount) basePart + remainder else basePart
+                        val instDue = recordedAtMillis + (intervalMillis * i)
+                        val inst = InstallmentEntity(
+                            id = "ins_${UUID.randomUUID().toString().replace("-", "").take(14)}",
+                            userId = userId,
+                            debtId = debt.id,
+                            installmentNumber = i,
+                            amountMinor = amount,
+                            paidMinor = 0L,
+                            dueAtMillis = instDue,
+                            status = if (instDue < now) InstallmentStatus.OVERDUE.name else InstallmentStatus.PENDING.name,
+                            updatedAtMillis = now
+                        )
+                        db.installmentDao().upsert(inst)
+                        enqueueOutbox(userId, "installment", inst.id, "UPSERT")
+                    }
+                }
+
+                // Auto-create default reminder 24h before due date
+                val reminderTime = (dueAtMillis - 86_400_000L).coerceAtLeast(now + 3_600_000L)
+                val reminder = ReminderEntity(
+                    id = "rem_${UUID.randomUUID().toString().replace("-", "").take(14)}",
+                    userId = userId,
+                    debtId = debt.id,
+                    contactId = contact.id,
+                    title = "تذكير استحقاق: ${contact.fullName}",
+                    message = "موعد استحقاق مبلغ ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)} (${debt.reason})",
+                    triggerAtMillis = reminderTime,
+                    repeatType = RepeatType.ONCE.name,
+                    priority = ReminderPriority.HIGH.name,
+                    isEnabled = true,
+                    isSent = false,
+                    createdAtMillis = now,
+                    updatedAtMillis = now
+                )
+                db.reminderDao().upsert(reminder)
+                enqueueOutbox(userId, "reminder", reminder.id, "UPSERT")
+
+                val notif = NotificationLogEntity(
+                    id = "ntf_${UUID.randomUUID().toString().replace("-", "").take(14)}",
+                    userId = userId,
+                    title = "تم تسجيل ${direction.labelAr}",
+                    body = "${contact.fullName} - ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)}",
+                    category = "DEBT_CREATED",
+                    relatedDebtId = debt.id,
+                    isRead = false,
+                    createdAtMillis = now
+                )
+                db.notificationLogDao().upsert(notif)
+                enqueueOutbox(userId, "notification", notif.id, "UPSERT")
+
+                recordAudit(
+                    userId = userId,
+                    actorName = actor.displayName,
+                    action = "إضافة دين جديد",
+                    entityType = "DEBT",
+                    entityId = debt.id,
+                    details = "${direction.labelAr} بقيمة ${MoneyMath.formatMinor(principalMinor, currencyCode = currencyCode)} مع ${contact.fullName}",
+                    reason = debt.reason
+                )
+            }
+            RepositoryActionResult.Success(debt)
         }
-        syncPendingBestEffort(userId)
-        return RepositoryActionResult.Success(debt)
+        if (result is RepositoryActionResult.Success) {
+            syncPendingBestEffort(userId)
+        }
+        return result
     }
 
     suspend fun updateDebtDetails(
@@ -415,129 +449,134 @@ class HisabatiRepository(
         settleRemaining: Boolean = false,
         idempotencyKey: String = UUID.randomUUID().toString()
     ): RepositoryActionResult<PaymentEntity> {
-        val actor = requirePermission(userId) { it.canRecordPayment }
-            ?: return RepositoryActionResult.Error("لا تملك صلاحية تسجيل الدفعات")
+        val result = writeMutex.withLock {
+            val actor = requirePermission(userId) { it.canRecordPayment }
+                ?: return@withLock RepositoryActionResult.Error("لا تملك صلاحية تسجيل الدفعات")
 
-        // Idempotency guard against double taps or outbox retries
-        db.paymentDao().getByIdempotencyKey(idempotencyKey)?.let { existingPayment ->
-            return RepositoryActionResult.Success(existingPayment)
-        }
-
-        if (amountMinor < 0L || discountMinor < 0L || (amountMinor + discountMinor) <= 0L) {
-            return RepositoryActionResult.Error("يجب أن يكون مبلغ الدفعة أو الخصم أكبر من صفر")
-        }
-
-        val debt = db.debtDao().getById(debtId, userId)
-            ?: return RepositoryActionResult.Error("الدين المطلوب غير موجود")
-
-        // Recompute authoritative remaining balance from immutable payments ledger
-        val existingPayments = db.paymentDao().getByDebtOnce(debtId, userId)
-        val totalAppliedSoFar = existingPayments.sumOf { it.amountMinor + it.discountMinor }
-        val verifiedBalanceBefore = (debt.principalMinor - totalAppliedSoFar).coerceAtLeast(0L)
-
-        if (verifiedBalanceBefore == 0L) {
-            return RepositoryActionResult.Error("هذا الدين مسدد بالكامل بالفعل")
-        }
-
-        val appliedTotal = amountMinor + discountMinor
-        if (appliedTotal > verifiedBalanceBefore) {
-            return RepositoryActionResult.Error(
-                "المبلغ المدخل (${MoneyMath.formatMinor(appliedTotal, currencyCode = debt.currencyCode)}) يتجاوز الرصيد المتبقي (${MoneyMath.formatMinor(verifiedBalanceBefore, currencyCode = debt.currencyCode)})"
-            )
-        }
-
-        val balanceAfter = verifiedBalanceBefore - appliedTotal
-        val now = System.currentTimeMillis()
-        val paymentId = "pay_${UUID.randomUUID().toString().replace("-", "").take(16)}"
-        val receiptNo = "HSB-${(now % 100_000_000L).toString().padStart(8, '0')}"
-
-        val payment = PaymentEntity(
-            id = paymentId,
-            userId = userId,
-            debtId = debt.id,
-            contactId = debt.contactId,
-            receiptNumber = receiptNo,
-            amountMinor = amountMinor,
-            discountMinor = discountMinor,
-            currencyCode = debt.currencyCode,
-            method = method.name,
-            paidAtMillis = paidAtMillis,
-            balanceBeforeMinor = verifiedBalanceBefore,
-            balanceAfterMinor = balanceAfter,
-            notes = notes?.trim()?.takeIf { it.isNotEmpty() },
-            idempotencyKey = idempotencyKey,
-            createdAtMillis = now,
-            syncStatus = SyncStatus.PENDING.name
-        )
-
-        val newStatus = when {
-            balanceAfter == 0L && (settleRemaining || discountMinor > 0L) -> DebtStatus.SETTLED.name
-            balanceAfter == 0L -> DebtStatus.PAID.name
-            else -> DebtStatus.PARTIAL.name
-        }
-
-        val updatedDebt = debt.copy(
-            remainingMinor = balanceAfter,
-            status = newStatus,
-            version = debt.version + 1L,
-            updatedAtMillis = now,
-            syncStatus = SyncStatus.PENDING.name
-        )
-
-        db.withTransaction {
-            db.paymentDao().insertImmutable(payment)
-            db.debtDao().upsert(updatedDebt)
-            enqueueOutbox(userId, "payment", payment.id, "UPSERT")
-            enqueueOutbox(userId, "debt", updatedDebt.id, "UPSERT")
-
-            // Apply payment to open installments sequentially
-            var creditToAllocate = appliedTotal
-            val installments = db.installmentDao().observeByDebt(debt.id, userId).first()
-            for (inst in installments) {
-                if (creditToAllocate <= 0L) break
-                val unpaid = (inst.amountMinor - inst.paidMinor).coerceAtLeast(0L)
-                if (unpaid > 0L) {
-                    val payHere = minOf(unpaid, creditToAllocate)
-                    val newPaid = inst.paidMinor + payHere
-                    val instStatus = if (newPaid >= inst.amountMinor) InstallmentStatus.PAID.name else inst.status
-                    val updatedInst = inst.copy(
-                        paidMinor = newPaid,
-                        status = instStatus,
-                        paidAtMillis = if (newPaid >= inst.amountMinor) paidAtMillis else inst.paidAtMillis,
-                        updatedAtMillis = now,
-                        syncStatus = SyncStatus.PENDING.name
-                    )
-                    db.installmentDao().upsert(updatedInst)
-                    enqueueOutbox(userId, "installment", updatedInst.id, "UPSERT")
-                    creditToAllocate -= payHere
-                }
+            // Idempotency guard against double taps or outbox retries
+            db.paymentDao().getByIdempotencyKey(idempotencyKey)?.let { existingPayment ->
+                return@withLock RepositoryActionResult.Success(existingPayment)
             }
 
-            val notif = NotificationLogEntity(
-                id = "ntf_${UUID.randomUUID().toString().replace("-", "").take(14)}",
-                userId = userId,
-                title = "تم تسجيل دفعة (${receiptNo})",
-                body = "${debt.contactName}: ${MoneyMath.formatMinor(amountMinor, currencyCode = debt.currencyCode)} — المتبقي ${MoneyMath.formatMinor(balanceAfter, currencyCode = debt.currencyCode)}",
-                category = "PAYMENT_RECORDED",
-                relatedDebtId = debt.id,
-                isRead = false,
-                createdAtMillis = now
-            )
-            db.notificationLogDao().upsert(notif)
-            enqueueOutbox(userId, "notification", notif.id, "UPSERT")
+            if (amountMinor < 0L || discountMinor < 0L || (amountMinor + discountMinor) <= 0L) {
+                return@withLock RepositoryActionResult.Error("يجب أن يكون مبلغ الدفعة أو الخصم أكبر من صفر")
+            }
 
-            recordAudit(
+            val debt = db.debtDao().getById(debtId, userId)
+                ?: return@withLock RepositoryActionResult.Error("الدين المطلوب غير موجود")
+
+            // Recompute authoritative remaining balance from immutable payments ledger
+            val existingPayments = db.paymentDao().getByDebtOnce(debtId, userId)
+            val totalAppliedSoFar = existingPayments.sumOf { it.amountMinor + it.discountMinor }
+            val verifiedBalanceBefore = (debt.principalMinor - totalAppliedSoFar).coerceAtLeast(0L)
+
+            if (verifiedBalanceBefore == 0L) {
+                return@withLock RepositoryActionResult.Error("هذا الدين مسدد بالكامل بالفعل")
+            }
+
+            val appliedTotal = amountMinor + discountMinor
+            if (appliedTotal > verifiedBalanceBefore) {
+                return@withLock RepositoryActionResult.Error(
+                    "المبلغ المدخل (${MoneyMath.formatMinor(appliedTotal, currencyCode = debt.currencyCode)}) يتجاوز الرصيد المتبقي (${MoneyMath.formatMinor(verifiedBalanceBefore, currencyCode = debt.currencyCode)})"
+                )
+            }
+
+            val balanceAfter = verifiedBalanceBefore - appliedTotal
+            val now = System.currentTimeMillis()
+            val paymentId = "pay_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+            val receiptNo = "HSB-${(now % 100_000_000L).toString().padStart(8, '0')}"
+
+            val payment = PaymentEntity(
+                id = paymentId,
                 userId = userId,
-                actorName = actor.displayName,
-                action = if (settleRemaining || discountMinor > 0L) "تسوية / دفعة بخصم" else "تسجيل دفعة",
-                entityType = "PAYMENT",
-                entityId = payment.id,
-                details = "إيصال $receiptNo: دفع ${MoneyMath.formatMinor(amountMinor, currencyCode = debt.currencyCode)} + خصم ${MoneyMath.formatMinor(discountMinor, currencyCode = debt.currencyCode)}، المتبقي ${MoneyMath.formatMinor(balanceAfter, currencyCode = debt.currencyCode)}",
-                reason = notes
+                debtId = debt.id,
+                contactId = debt.contactId,
+                receiptNumber = receiptNo,
+                amountMinor = amountMinor,
+                discountMinor = discountMinor,
+                currencyCode = debt.currencyCode,
+                method = method.name,
+                paidAtMillis = paidAtMillis,
+                balanceBeforeMinor = verifiedBalanceBefore,
+                balanceAfterMinor = balanceAfter,
+                notes = notes?.trim()?.takeIf { it.isNotEmpty() },
+                idempotencyKey = idempotencyKey,
+                createdAtMillis = now,
+                syncStatus = SyncStatus.PENDING.name
             )
+
+            val newStatus = when {
+                balanceAfter == 0L && (settleRemaining || discountMinor > 0L) -> DebtStatus.SETTLED.name
+                balanceAfter == 0L -> DebtStatus.PAID.name
+                else -> DebtStatus.PARTIAL.name
+            }
+
+            val updatedDebt = debt.copy(
+                remainingMinor = balanceAfter,
+                status = newStatus,
+                version = debt.version + 1L,
+                updatedAtMillis = now,
+                syncStatus = SyncStatus.PENDING.name
+            )
+
+            db.withTransaction {
+                db.paymentDao().insertImmutable(payment)
+                db.debtDao().upsert(updatedDebt)
+                enqueueOutbox(userId, "payment", payment.id, "UPSERT")
+                enqueueOutbox(userId, "debt", updatedDebt.id, "UPSERT")
+
+                // Apply payment to open installments sequentially
+                var creditToAllocate = appliedTotal
+                val installments = db.installmentDao().observeByDebt(debt.id, userId).first()
+                for (inst in installments) {
+                    if (creditToAllocate <= 0L) break
+                    val unpaid = (inst.amountMinor - inst.paidMinor).coerceAtLeast(0L)
+                    if (unpaid > 0L) {
+                        val payHere = minOf(unpaid, creditToAllocate)
+                        val newPaid = inst.paidMinor + payHere
+                        val instStatus = if (newPaid >= inst.amountMinor) InstallmentStatus.PAID.name else inst.status
+                        val updatedInst = inst.copy(
+                            paidMinor = newPaid,
+                            status = instStatus,
+                            paidAtMillis = if (newPaid >= inst.amountMinor) paidAtMillis else inst.paidAtMillis,
+                            updatedAtMillis = now,
+                            syncStatus = SyncStatus.PENDING.name
+                        )
+                        db.installmentDao().upsert(updatedInst)
+                        enqueueOutbox(userId, "installment", updatedInst.id, "UPSERT")
+                        creditToAllocate -= payHere
+                    }
+                }
+
+                val notif = NotificationLogEntity(
+                    id = "ntf_${UUID.randomUUID().toString().replace("-", "").take(14)}",
+                    userId = userId,
+                    title = "تم تسجيل دفعة (${receiptNo})",
+                    body = "${debt.contactName}: ${MoneyMath.formatMinor(amountMinor, currencyCode = debt.currencyCode)} — المتبقي ${MoneyMath.formatMinor(balanceAfter, currencyCode = debt.currencyCode)}",
+                    category = "PAYMENT_RECORDED",
+                    relatedDebtId = debt.id,
+                    isRead = false,
+                    createdAtMillis = now
+                )
+                db.notificationLogDao().upsert(notif)
+                enqueueOutbox(userId, "notification", notif.id, "UPSERT")
+
+                recordAudit(
+                    userId = userId,
+                    actorName = actor.displayName,
+                    action = if (settleRemaining || discountMinor > 0L) "تسوية / دفعة بخصم" else "تسجيل دفعة",
+                    entityType = "PAYMENT",
+                    entityId = payment.id,
+                    details = "إيصال $receiptNo: دفع ${MoneyMath.formatMinor(amountMinor, currencyCode = debt.currencyCode)} + خصم ${MoneyMath.formatMinor(discountMinor, currencyCode = debt.currencyCode)}، المتبقي ${MoneyMath.formatMinor(balanceAfter, currencyCode = debt.currencyCode)}",
+                    reason = notes
+                )
+            }
+            RepositoryActionResult.Success(payment)
         }
-        syncPendingBestEffort(userId)
-        return RepositoryActionResult.Success(payment)
+        if (result is RepositoryActionResult.Success) {
+            syncPendingBestEffort(userId)
+        }
+        return result
     }
 
     suspend fun updateInstallmentSchedule(
@@ -645,6 +684,82 @@ class HisabatiRepository(
         syncPendingBestEffort(template.userId)
     }
 
+    suspend fun exportWhatsAppConfigJson(userId: String): String {
+        val prefs = preferencesStore.preferencesFlow.first()
+        val templates = db.messageTemplateDao().getTemplatesOnce(userId)
+        val root = JSONObject().apply {
+            put("app", "HISABATI_WHATSAPP_CONFIG")
+            put("version", 1)
+            put("exportedAtMillis", System.currentTimeMillis())
+            put("format", JSONObject().apply {
+                put("style", prefs.whatsappStyle)
+                put("includeWorkspaceHeader", prefs.whatsappIncludeWorkspaceHeader)
+                put("includeFinancialBreakdown", prefs.whatsappIncludeFinancialBreakdown)
+                put("includeDates", prefs.whatsappIncludeDates)
+                put("includeReasonAndNotes", prefs.whatsappIncludeReasonAndNotes)
+                put("includeFooterSignature", prefs.whatsappIncludeFooterSignature)
+                put("customSignature", prefs.whatsappCustomSignature)
+            })
+            put("templates", JSONArray().apply {
+                templates.forEach { tpl ->
+                    put(JSONObject().apply {
+                        put("id", tpl.id)
+                        put("type", tpl.type)
+                        put("titleAr", tpl.titleAr)
+                        put("bodyTemplate", tpl.bodyTemplate)
+                        put("channel", tpl.channel)
+                    })
+                }
+            })
+        }
+        return root.toString(2)
+    }
+
+    suspend fun importWhatsAppConfigJson(userId: String, jsonText: String): RepositoryActionResult<Int> {
+        return try {
+            val root = JSONObject(jsonText)
+            if (root.optString("app") != "HISABATI_WHATSAPP_CONFIG") {
+                return RepositoryActionResult.Error("ملف إعدادات وقوالب واتساب غير صالح")
+            }
+            root.optJSONObject("format")?.let { fmt ->
+                preferencesStore.setWhatsAppFormatSettings(
+                    style = fmt.optString("style", "FORMAL"),
+                    includeHeader = fmt.optBoolean("includeWorkspaceHeader", true),
+                    includeBreakdown = fmt.optBoolean("includeFinancialBreakdown", true),
+                    includeDates = fmt.optBoolean("includeDates", true),
+                    includeReason = fmt.optBoolean("includeReasonAndNotes", true),
+                    includeFooter = fmt.optBoolean("includeFooterSignature", true),
+                    customSignature = fmt.optString("customSignature", "شكراً لتعاملكم الكريم • حساباتي")
+                )
+            }
+            val now = System.currentTimeMillis()
+            val arr = root.optJSONArray("templates") ?: JSONArray()
+            var count = 0
+            db.withTransaction {
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val tpl = MessageTemplateEntity(
+                        id = o.getString("id"),
+                        userId = userId,
+                        type = o.optString("type", "CUSTOM"),
+                        titleAr = o.optString("titleAr", "قالب مخصص"),
+                        bodyTemplate = o.getString("bodyTemplate"),
+                        channel = o.optString("channel", MessageChannel.WHATSAPP.name),
+                        updatedAtMillis = now,
+                        syncStatus = SyncStatus.PENDING.name
+                    )
+                    db.messageTemplateDao().upsert(tpl)
+                    enqueueOutbox(userId, "template", tpl.id, "UPSERT")
+                    count++
+                }
+            }
+            syncPendingBestEffort(userId)
+            RepositoryActionResult.Success(count)
+        } catch (e: Exception) {
+            RepositoryActionResult.Error("تعذر استيراد قوالب واتساب: ${e.localizedMessage ?: "صيغة غير صالحة"}")
+        }
+    }
+
     suspend fun saveWorkspaceMember(
         userId: String,
         displayName: String,
@@ -746,49 +861,60 @@ class HisabatiRepository(
      * Flushes all pending outbox items idempotently to Firestore.
      * Safe to invoke from WorkManager or manual sync button.
      */
-    suspend fun syncPendingOutbox(userId: String): RepositoryActionResult<Int> {
+    suspend fun syncPendingOutbox(userId: String, perItemTimeoutMs: Long = 4_000L): RepositoryActionResult<Int> {
         val pending = db.syncOutboxDao().getPendingOnce(userId)
         var syncedCount = 0
         val now = System.currentTimeMillis()
         for (item in pending) {
             try {
-                when (item.entityType) {
-                    "contact" -> db.contactDao().getById(item.entityId, userId)?.let {
-                        cloud.upsertContact(it)
-                        db.contactDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
-                    }
-                    "debt" -> db.debtDao().getById(item.entityId, userId)?.let {
-                        cloud.upsertDebt(it)
-                        db.debtDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
-                    }
-                    "payment" -> db.paymentDao().getById(item.entityId, userId)?.let {
-                        cloud.createPayment(it)
-                    }
-                    "installment" -> db.installmentDao().getById(item.entityId, userId)?.let {
-                        cloud.upsertInstallment(it)
-                        db.installmentDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
-                    }
-                    "currency" -> db.currencyDao().getCurrenciesOnce(userId).find { it.id == item.entityId }?.let {
-                        cloud.upsertCurrency(it)
-                    }
-                    "reminder" -> db.reminderDao().getEnabledOnce(userId).find { it.id == item.entityId }?.let {
-                        cloud.upsertReminder(it)
-                    }
-                    "notification" -> db.notificationLogDao().observeLogs(userId).first().find { it.id == item.entityId }?.let {
-                        cloud.upsertNotificationLog(it)
-                    }
-                    "template" -> db.messageTemplateDao().getTemplatesOnce(userId).find { it.id == item.entityId }?.let {
-                        cloud.upsertMessageTemplate(it)
-                    }
-                    "audit" -> db.auditLogDao().getAuditLogsOnce(userId).find { it.id == item.entityId }?.let {
-                        cloud.createAuditLog(it)
-                    }
-                    "member" -> db.workspaceMemberDao().getMembersOnce(userId).find { it.id == item.entityId }?.let {
-                        cloud.upsertWorkspaceMember(it)
+                withTimeout(perItemTimeoutMs) {
+                    when (item.entityType) {
+                        "contact" -> db.contactDao().getById(item.entityId, userId)?.let {
+                            cloud.upsertContact(it)
+                            db.contactDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
+                        }
+                        "debt" -> db.debtDao().getById(item.entityId, userId)?.let {
+                            cloud.upsertDebt(it)
+                            db.debtDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
+                        }
+                        "payment" -> db.paymentDao().getById(item.entityId, userId)?.let {
+                            cloud.createPayment(it)
+                        }
+                        "installment" -> db.installmentDao().getById(item.entityId, userId)?.let {
+                            cloud.upsertInstallment(it)
+                            db.installmentDao().upsert(it.copy(syncStatus = SyncStatus.SYNCED.name))
+                        }
+                        "currency" -> db.currencyDao().getCurrenciesOnce(userId).find { it.id == item.entityId }?.let {
+                            cloud.upsertCurrency(it)
+                        }
+                        "reminder" -> db.reminderDao().getEnabledOnce(userId).find { it.id == item.entityId }?.let {
+                            cloud.upsertReminder(it)
+                        }
+                        "notification" -> db.notificationLogDao().observeLogs(userId).first().find { it.id == item.entityId }?.let {
+                            cloud.upsertNotificationLog(it)
+                        }
+                        "template" -> db.messageTemplateDao().getTemplatesOnce(userId).find { it.id == item.entityId }?.let {
+                            cloud.upsertMessageTemplate(it)
+                        }
+                        "audit" -> db.auditLogDao().getAuditLogsOnce(userId).find { it.id == item.entityId }?.let {
+                            cloud.createAuditLog(it)
+                        }
+                        "member" -> db.workspaceMemberDao().getMembersOnce(userId).find { it.id == item.entityId }?.let {
+                            cloud.upsertWorkspaceMember(it)
+                        }
                     }
                 }
                 db.syncOutboxDao().updateStatus(item.id, SyncStatus.SYNCED.name, item.retryCount, null, now)
                 syncedCount++
+            } catch (e: TimeoutCancellationException) {
+                db.syncOutboxDao().updateStatus(
+                    item.id,
+                    SyncStatus.FAILED.name,
+                    item.retryCount + 1,
+                    "انتهت مهلة الاتصال بالخادم",
+                    now
+                )
+                break
             } catch (e: Exception) {
                 db.syncOutboxDao().updateStatus(
                     item.id,
@@ -797,6 +923,9 @@ class HisabatiRepository(
                     e.localizedMessage,
                     now
                 )
+                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+                    break
+                }
             }
         }
         db.syncOutboxDao().pruneSynced(userId)
@@ -805,7 +934,9 @@ class HisabatiRepository(
     }
 
     private suspend fun syncPendingBestEffort(userId: String) {
-        runCatching { syncPendingOutbox(userId) }
+        withTimeoutOrNull(800L) {
+            runCatching { syncPendingOutbox(userId, perItemTimeoutMs = 700L) }
+        }
     }
 
     suspend fun exportBackupJson(userId: String): String {
@@ -988,7 +1119,9 @@ class HisabatiRepository(
     }
 
     suspend fun deleteAllUserData(userId: String) {
-        cloud.deleteAllUserData(userId)
+        withTimeoutOrNull(2_000L) {
+            runCatching { cloud.deleteAllUserData(userId) }
+        }
         db.withTransaction {
             db.syncOutboxDao().deleteAllForUser(userId)
             db.auditLogDao().deleteAllForUser(userId)

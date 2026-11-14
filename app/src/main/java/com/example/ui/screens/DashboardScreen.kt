@@ -24,15 +24,19 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -45,13 +49,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.domain.model.DebtStatus
 import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
@@ -63,12 +73,7 @@ import com.example.ui.components.FintechSurfaceCard
 import com.example.ui.components.MetricSummaryTile
 import com.example.ui.components.MonthlyCashflowChart
 import com.example.ui.components.ReceivablePayableComparisonCard
-import com.example.ui.theme.EmeraldBright
-import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.GoldAccent
-import com.example.ui.theme.InfoSlate
-import com.example.ui.theme.PayableCoral
-import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.HisabatiTheme
 import com.example.ui.viewmodel.HisabatiUiState
 
 @Composable
@@ -84,80 +89,99 @@ fun DashboardScreen(
     onOpenSearch: () -> Unit,
     onOpenAiAssistant: () -> Unit,
     onOpenContacts: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    onSelectCurrency: (String) -> Unit = {},
     onSyncNow: () -> Unit
 ) {
+    val hc = HisabatiTheme.colors
     val m = state.metrics
     val sym = m.defaultCurrencySymbol
-    val now = System.currentTimeMillis()
     val upcomingDebts = state.debts
         .filter { it.remainingMinor > 0L && it.status != DebtStatus.PAID.name && it.status != DebtStatus.SETTLED.name }
         .sortedBy { it.dueAtMillis }
         .take(5)
     val recentPayments = state.payments.take(4)
     val unreadNotifications = state.notifications.count { !it.isRead }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Top Header Bar
+        // Compact Top Header Bar
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "مرحباً، ${userDisplayName.ifBlank { "بك" }}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${state.preferences.workspaceName} (${state.preferences.accountType.labelAr})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "${state.preferences.workspaceName} • ${state.preferences.accountType.labelAr}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(38.dp).testTag("dashboard_theme_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Palette,
+                            contentDescription = "الثيمات والإعدادات",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(
                         onClick = onSyncNow,
-                        modifier = Modifier.testTag("dashboard_sync_button")
+                        modifier = Modifier.size(38.dp).testTag("dashboard_sync_button")
                     ) {
                         Icon(
                             imageVector = if (state.pendingOutboxCount > 0) Icons.Rounded.CloudUpload else Icons.Rounded.CloudDone,
                             contentDescription = "حالة المزامنة",
-                            tint = if (state.pendingOutboxCount > 0) WarningAmber else EmeraldPrimary
+                            tint = if (state.pendingOutboxCount > 0) hc.warning else hc.positive,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     IconButton(
                         onClick = onOpenSearch,
-                        modifier = Modifier.testTag("dashboard_search_button")
+                        modifier = Modifier.size(38.dp).testTag("dashboard_search_button")
                     ) {
-                        Icon(Icons.Rounded.Search, contentDescription = "بحث ذكي")
+                        Icon(Icons.Rounded.Search, contentDescription = "بحث ذكي", modifier = Modifier.size(20.dp))
                     }
                     IconButton(
                         onClick = onOpenNotifications,
-                        modifier = Modifier.testTag("dashboard_notifications_button")
+                        modifier = Modifier.size(38.dp).testTag("dashboard_notifications_button")
                     ) {
                         BadgedBox(
                             badge = {
                                 if (unreadNotifications > 0) {
-                                    Badge { Text(unreadNotifications.toString()) }
+                                    Badge { Text(unreadNotifications.toString(), fontSize = 10.sp) }
                                 }
                             }
                         ) {
-                            Icon(Icons.Rounded.Notifications, contentDescription = "الإشعارات")
+                            Icon(Icons.Rounded.Notifications, contentDescription = "الإشعارات", modifier = Modifier.size(20.dp))
                         }
                     }
                 }
             }
         }
 
-        // Luxury Hero Card: Net Financial Position + Receivable / Payable + Quick Actions
+        // Compact & Balanced Hero Card
         item {
             FintechHeroBannerCard {
                 Row(
@@ -167,91 +191,114 @@ fun DashboardScreen(
                 ) {
                     Text(
                         text = "صافي المركز المالي",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.labelLarge,
                         color = Color.White.copy(alpha = 0.85f)
                     )
                     Surface(
-                        color = Color.White.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(999.dp)
+                        onClick = { showCurrencyPicker = true },
+                        color = Color.White.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(999.dp),
+                        modifier = Modifier.testTag("dashboard_currency_chip")
                     ) {
-                        Text(
-                            text = m.defaultCurrencyCode,
-                            color = GoldAccent,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CurrencyExchange,
+                                contentDescription = "تغيير العملة",
+                                tint = hc.accent,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "C • ${m.defaultCurrencyCode}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = MoneyMath.formatSignedMinor(m.netPositionMinor, sym),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = if (m.netPositionMinor >= 0) EmeraldBright else Color(0xFFFF8A9B),
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = if (m.netPositionMinor >= 0) Color(0xFF6EE7B7) else Color(0xFFFFA5B4),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Surface(
-                        color = Color.White.copy(alpha = 0.10f),
-                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.11f),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = EmeraldBright, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = Color(0xFF6EE7B7), modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("مستحق لي", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                                Text("مستحق لي", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.labelSmall)
                             }
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = MoneyMath.formatMinor(m.totalReceivableMinor, sym),
                                 color = Color.White,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                     Surface(
-                        color = Color.White.copy(alpha = 0.10f),
-                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.11f),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = Color(0xFFFF8A9B), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = Color(0xFFFFA5B4), modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("مستحق عليّ", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                                Text("مستحق عليّ", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.labelSmall)
                             }
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = MoneyMath.formatMinor(m.totalPayableMinor, sym),
                                 color = Color.White,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
                         onClick = onAddDebtClick,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(40.dp)
                             .testTag("quick_add_debt_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldBright, contentColor = Color(0xFF062019))
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF10B981),
+                            contentColor = Color(0xFF041D15)
+                        )
                     ) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("إضافة دين", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("إضافة دين", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                     FilledTonalButton(
                         onClick = {
@@ -264,74 +311,75 @@ fun DashboardScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(40.dp)
                             .testTag("quick_record_payment_button"),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = Color.White.copy(alpha = 0.18f),
                             contentColor = Color.White
                         )
                     ) {
-                        Icon(Icons.Rounded.Payments, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("تسجيل دفعة", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Rounded.Payments, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("تسجيل دفعة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
-        // AI Smart Financial Assistant Banner
+        // Compact AI Assistant Banner
         item {
             FintechSurfaceCard(
                 onClick = onOpenAiAssistant,
+                contentPadding = PaddingValues(10.dp),
                 modifier = Modifier.testTag("dashboard_ai_card")
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(GoldAccent.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = GoldAccent)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("المساعد المالي الذكي", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "اسأل عن المتأخرات، أكثر العملاء مديونية، أو ملخص هذا الشهر",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(hc.accent.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = hc.accent, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("المساعد المالي الذكي", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "تحليل المتأخرات، كبار العملاء، وملخص السيولة الفوري",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
         }
 
-        // KPI Grid (Collected, Paid Out, Overdue, Due Soon, Contacts, Transactions)
+        // Balanced 2x3 Compact KPI Grid
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MetricSummaryTile(
                     title = "إجمالي المحصّل",
                     value = MoneyMath.formatMinor(m.totalCollectedMinor, sym),
                     icon = Icons.Rounded.AccountBalanceWallet,
-                    accentColor = EmeraldPrimary,
+                    accentColor = hc.positive,
                     modifier = Modifier.weight(1f)
                 )
                 MetricSummaryTile(
                     title = "إجمالي المسدّد",
                     value = MoneyMath.formatMinor(m.totalPaidOutMinor, sym),
                     icon = Icons.Rounded.Payments,
-                    accentColor = InfoSlate,
+                    accentColor = hc.info,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -339,14 +387,14 @@ fun DashboardScreen(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MetricSummaryTile(
                     title = "الديون المتأخرة",
                     value = MoneyMath.formatMinor(m.overdueAmountMinor, sym),
                     subtitle = "${m.overdueCount} دين",
                     icon = Icons.Rounded.WarningAmber,
-                    accentColor = PayableCoral,
+                    accentColor = hc.negative,
                     modifier = Modifier.weight(1f),
                     onClick = onOpenOverdue
                 )
@@ -355,7 +403,7 @@ fun DashboardScreen(
                     value = MoneyMath.formatMinor(m.dueSoonAmountMinor, sym),
                     subtitle = "${m.dueSoonCount} خلال 7 أيام",
                     icon = Icons.Rounded.Schedule,
-                    accentColor = WarningAmber,
+                    accentColor = hc.warning,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -363,7 +411,7 @@ fun DashboardScreen(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MetricSummaryTile(
                     title = "عدد الأشخاص",
@@ -377,13 +425,13 @@ fun DashboardScreen(
                     title = "عدد المعاملات",
                     value = "${m.transactionsCount}",
                     icon = Icons.Rounded.ReceiptLong,
-                    accentColor = GoldAccent,
+                    accentColor = hc.accent,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // Interactive Charts
+        // Compact Interactive Charts
         item {
             MonthlyCashflowChart(series = m.monthlySeries)
         }
@@ -402,8 +450,8 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("المستحقات القادمة والمتأخرة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onOpenOverdue) { Text("عرض المتأخرة") }
+                Text("المستحقات القادمة والمتأخرة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onOpenOverdue) { Text("عرض الكل") }
             }
         }
         if (upcomingDebts.isEmpty()) {
@@ -422,16 +470,16 @@ fun DashboardScreen(
             }
         }
 
-        // Recent Payments / Operations Section
+        // Recent Payments Section
         item {
-            Text("العمليات والدفعات الأخيرة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("العمليات والدفعات الأخيرة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         if (recentPayments.isEmpty()) {
             item {
                 FintechSurfaceCard {
                     Text(
                         text = "لم تُسجل دفعات بعد. عند تسجيل أي دفعة سيظهر سجل الإيصال هنا فوراً.",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -440,41 +488,85 @@ fun DashboardScreen(
             items(recentPayments, key = { it.id }) { p ->
                 val debt = state.debts.find { it.id == p.debtId }
                 val methodLabel = runCatching { PaymentMethod.valueOf(p.method).labelAr }.getOrDefault(p.method)
-                FintechSurfaceCard(onClick = { onPaymentClick(p.id) }) {
+                FintechSurfaceCard(onClick = { onPaymentClick(p.id) }, contentPadding = PaddingValues(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(34.dp)
                                     .clip(CircleShape)
-                                    .background(EmeraldPrimary.copy(alpha = 0.14f)),
+                                    .background(hc.positive.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Rounded.ReceiptLong, contentDescription = null, tint = EmeraldPrimary)
+                                Icon(Icons.Rounded.ReceiptLong, contentDescription = null, tint = hc.positive, modifier = Modifier.size(18.dp))
                             }
-                            Spacer(Modifier.width(12.dp))
+                            Spacer(Modifier.width(10.dp))
                             Column {
-                                Text(debt?.contactName ?: "دفعة مالية", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(debt?.contactName ?: "دفعة مالية", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                 Text(
                                     "إيصال ${p.receiptNumber} • $methodLabel • ${ArabicReportExporter.formatDate(p.paidAtMillis)}",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                         Text(
                             text = MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = EmeraldPrimary,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = hc.positive,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
         }
+    }
+
+    if (showCurrencyPicker) {
+        AlertDialog(
+            onDismissRequest = { showCurrencyPicker = false },
+            title = { Text("تغيير العملة الافتراضية (C)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.currencies.forEach { cur ->
+                        val selected = cur.code == state.preferences.defaultCurrency
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectCurrency(cur.code)
+                                    showCurrencyPicker = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${cur.nameAr} (${cur.code} - ${cur.symbol})", fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                                if (selected) {
+                                    Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCurrencyPicker = false
+                    onOpenSettings()
+                }) { Text("إدارة العملات في الإعدادات") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCurrencyPicker = false }) { Text("إغلاق") }
+            }
+        )
     }
 }

@@ -97,7 +97,12 @@ class MainActivity : FragmentActivity() {
                 prompt.authenticate(promptInfo)
             }
 
-            HisabatiTheme(themeMode = prefs.themeMode) {
+            HisabatiTheme(
+                themeMode = prefs.themeMode,
+                themePalette = prefs.themePalette,
+                customPrimaryHex = prefs.customPrimaryHex,
+                customAccentHex = prefs.customAccentHex
+            ) {
                 when {
                     !splashFinished -> {
                         Scaffold(

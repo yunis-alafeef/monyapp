@@ -269,4 +269,105 @@ class HisabatiLedgerTest {
             assertTrue(csvContent.contains("فاتورة مورد"))
         }
     }
+
+    @Test
+    fun defaultCurrencyIsYemeniRialAndIdempotentSavePreventsDuplicates() = runBlocking(Dispatchers.IO) {
+        withTimeout(15_000L) {
+            assertEquals("YER", MoneyMath.defaultCurrenciesSeed().first().code)
+            assertEquals("YER", prefs.preferencesFlow.first().defaultCurrency)
+
+            val uid = "uid_idem_test"
+            repo.initializeUserWorkspace(uid, "متجر اليمن", "yemen@test.com")
+
+            // Duplicate contact creation with same idempotencyKey creates only 1 contact
+            val contactKey = "contact_key_1"
+            val c1 = repo.saveContact(uid, null, "خالد السالمي", "772317950", "صنعاء", null, null, idempotencyKey = contactKey)
+            val c2 = repo.saveContact(uid, null, "خالد السالمي", "772317950", "صنعاء", null, null, idempotencyKey = contactKey)
+            assertTrue(c1 is RepositoryActionResult.Success)
+            assertTrue(c2 is RepositoryActionResult.Success)
+            val contact = (c1 as RepositoryActionResult.Success).data
+            assertEquals(contact.id, (c2 as RepositoryActionResult.Success).data.id)
+            assertEquals(1, repo.observeContacts(uid).first().size)
+
+            // Duplicate debt creation with same idempotencyKey creates only 1 debt
+            val debtKey = "debt_key_1"
+            val now = System.currentTimeMillis()
+            val d1 = repo.addDebt(
+                userId = uid,
+                contactId = contact.id,
+                direction = DebtDirection.RECEIVABLE,
+                principalMinor = 250_000L,
+                currencyCode = "YER",
+                recordedAtMillis = now,
+                dueAtMillis = now + 86_400_000L,
+                reason = "بضاعة أقمشة",
+                paymentMethod = "نقدي",
+                attachmentUri = null,
+                notes = null,
+                installmentCount = 0,
+                idempotencyKey = debtKey
+            )
+            val d2 = repo.addDebt(
+                userId = uid,
+                contactId = contact.id,
+                direction = DebtDirection.RECEIVABLE,
+                principalMinor = 250_000L,
+                currencyCode = "YER",
+                recordedAtMillis = now,
+                dueAtMillis = now + 86_400_000L,
+                reason = "بضاعة أقمشة",
+                paymentMethod = "نقدي",
+                attachmentUri = null,
+                notes = null,
+                installmentCount = 0,
+                idempotencyKey = debtKey
+            )
+            assertTrue(d1 is RepositoryActionResult.Success)
+            assertTrue(d2 is RepositoryActionResult.Success)
+            assertEquals((d1 as RepositoryActionResult.Success).data.id, (d2 as RepositoryActionResult.Success).data.id)
+            assertEquals(1, repo.observeDebts(uid).first().size)
+        }
+    }
+
+    @Test
+    fun whatsappFormattingAndTemplatesExportImportWorkCorrectly() = runBlocking(Dispatchers.IO) {
+        withTimeout(15_000L) {
+            val uid = "uid_wa_test"
+            repo.initializeUserWorkspace(uid, "مؤسسة الأفق", "wa@test.com")
+            prefs.setWhatsAppFormatSettings(
+                style = "URGENT",
+                includeHeader = true,
+                includeBreakdown = true,
+                includeDates = true,
+                includeReason = true,
+                includeFooter = true,
+                customSignature = "توقيع الاختبار"
+            )
+            val updatedPrefs = prefs.preferencesFlow.first()
+            val formatted = com.example.messaging.ExternalMessagingHelper.buildFormattedWhatsAppMessage(
+                prefs = updatedPrefs,
+                title = "سند مطالبة",
+                contactName = "علي حسن",
+                directionLabel = "مستحق لي",
+                principalFormatted = "50,000 ر.ي",
+                paidFormatted = "10,000 ر.ي",
+                remainingFormatted = "40,000 ر.ي",
+                recordedDateLabel = "2026/11/10",
+                dueDateLabel = "2026/11/20",
+                reason = "فاتورة 99",
+                notes = "الرجاء السداد",
+                receiptNumber = "DBT-123"
+            )
+            assertTrue(formatted.contains("علي حسن"))
+            assertTrue(formatted.contains("40,000 ر.ي"))
+            assertTrue(formatted.contains("توقيع الاختبار"))
+
+            val json = repo.exportWhatsAppConfigJson(uid)
+            assertTrue(json.contains("URGENT"))
+            assertTrue(json.contains("توقيع الاختبار"))
+
+            val importRes = repo.importWhatsAppConfigJson(uid, json)
+            assertTrue(importRes is RepositoryActionResult.Success)
+        }
+    }
 }

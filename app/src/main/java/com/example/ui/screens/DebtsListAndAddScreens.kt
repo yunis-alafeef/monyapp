@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -55,22 +57,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.data.local.DebtEntity
 import com.example.domain.model.DebtDirection
 import com.example.domain.model.DebtStatus
 import com.example.domain.model.MoneyMath
 import com.example.domain.model.PaymentMethod
 import com.example.export.ArabicReportExporter
+import com.example.export.StatementPdfLine
+import com.example.messaging.ExternalMessagingHelper
+import com.example.notifications.NotificationHelper
 import com.example.ui.components.DebtListCard
 import com.example.ui.components.EmptyStateCard
-import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.PayableCoral
+import com.example.ui.components.OperationNotificationVoucherDialog
+import com.example.ui.theme.HisabatiTheme
 import com.example.ui.viewmodel.HisabatiUiState
 import java.util.Calendar
+import java.util.UUID
 
 @Composable
 fun DebtsHubScreen(
@@ -79,6 +87,7 @@ fun DebtsHubScreen(
     onAddDebt: (DebtDirection) -> Unit,
     onDebtClick: (String) -> Unit
 ) {
+    val hc = HisabatiTheme.colors
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab) }
     var statusFilter by remember { mutableStateOf<String?>(null) }
     var currencyFilter by remember { mutableStateOf<String?>(null) }
@@ -106,7 +115,8 @@ fun DebtsHubScreen(
                 onClick = {
                     onAddDebt(if (selectedTab == 1) DebtDirection.PAYABLE else DebtDirection.RECEIVABLE)
                 },
-                containerColor = EmeraldPrimary,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.testTag("debts_add_fab")
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = "إضافة دين")
@@ -120,77 +130,77 @@ fun DebtsHubScreen(
         ) {
             Text(
                 text = "إدارة الديون والمستحقات",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
             )
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("مستحقة لي") },
+                    text = { Text("مستحقة لي", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.testTag("tab_receivables")
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("مستحقة عليّ") },
+                    text = { Text("مستحقة عليّ", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.testTag("tab_payables")
                 )
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("المتأخرة") },
+                    text = { Text("المتأخرة", style = MaterialTheme.typography.labelLarge) },
                     modifier = Modifier.testTag("tab_overdue")
                 )
             }
 
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 item {
                     FilterChip(
                         selected = statusFilter == null,
                         onClick = { statusFilter = null },
-                        label = { Text("كل الحالات") }
+                        label = { Text("كل الحالات", style = MaterialTheme.typography.labelMedium) }
                     )
                 }
                 items(DebtStatus.entries) { st ->
                     FilterChip(
                         selected = statusFilter == st.name,
                         onClick = { statusFilter = if (statusFilter == st.name) null else st.name },
-                        label = { Text(st.labelAr) }
+                        label = { Text(st.labelAr, style = MaterialTheme.typography.labelMedium) }
                     )
                 }
             }
 
             if (state.currencies.isNotEmpty()) {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     item {
                         FilterChip(
                             selected = currencyFilter == null,
                             onClick = { currencyFilter = null },
-                            label = { Text("كل العملات") }
+                            label = { Text("كل العملات", style = MaterialTheme.typography.labelMedium) }
                         )
                     }
                     items(state.currencies, key = { it.id }) { cur ->
                         FilterChip(
                             selected = currencyFilter == cur.code,
                             onClick = { currencyFilter = if (currencyFilter == cur.code) null else cur.code },
-                            label = { Text(cur.code) }
+                            label = { Text(cur.code, style = MaterialTheme.typography.labelMedium) }
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
 
             if (filteredDebts.isEmpty()) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     EmptyStateCard(
                         icon = Icons.Rounded.AccountBalanceWallet,
                         title = "لا توجد ديون في هذا القسم",
@@ -201,8 +211,8 @@ fun DebtsHubScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    contentPadding = PaddingValues(12.dp, 6.dp, 12.dp, 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(filteredDebts, key = { it.id }) { debt ->
                         DebtListCard(debt = debt, onClick = { onDebtClick(debt.id) })
@@ -232,11 +242,15 @@ fun AddDebtScreen(
         paymentMethod: String?,
         attachmentUri: String?,
         notes: String?,
-        installmentCount: Int
+        installmentCount: Int,
+        idempotencyKey: String,
+        onError: (String) -> Unit,
+        onSuccess: (DebtEntity) -> Unit
     ) -> Unit
 ) {
-    BackHandler(onBack = onBack)
+    BackHandler(enabled = !false, onBack = onBack)
     val context = LocalContext.current
+    val hc = HisabatiTheme.colors
 
     var selectedContactId by remember(preselectedContactId, state.contacts) {
         mutableStateOf(preselectedContactId ?: state.contacts.firstOrNull()?.id ?: "")
@@ -254,6 +268,10 @@ fun AddDebtScreen(
     var notes by remember { mutableStateOf("") }
     var installmentCountText by remember { mutableStateOf("0") }
     var validationError by remember { mutableStateOf<String?>(null) }
+
+    var isSaving by remember { mutableStateOf(false) }
+    val formSubmissionKey = remember { UUID.randomUUID().toString() }
+    var savedDebtVoucher by remember { mutableStateOf<DebtEntity?>(null) }
 
     val attachmentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -284,7 +302,7 @@ fun AddDebtScreen(
             TopAppBar(
                 title = { Text("إضافة دين أو مستحق جديد") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (!isSaving) onBack() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع")
                     }
                 }
@@ -296,26 +314,24 @@ fun AddDebtScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Direction selector
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 FilterChip(
                     selected = direction == DebtDirection.RECEIVABLE,
-                    onClick = { direction = DebtDirection.RECEIVABLE },
+                    onClick = { if (!isSaving) direction = DebtDirection.RECEIVABLE },
                     label = { Text("مستحق لي (أطلبهم)") },
                     modifier = Modifier.weight(1f)
                 )
                 FilterChip(
                     selected = direction == DebtDirection.PAYABLE,
-                    onClick = { direction = DebtDirection.PAYABLE },
+                    onClick = { if (!isSaving) direction = DebtDirection.PAYABLE },
                     label = { Text("مستحق عليّ (أدين لهم)") },
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // Contact selector
             if (state.contacts.isEmpty()) {
                 OutlinedButton(
                     onClick = onQuickAddContact,
@@ -328,7 +344,7 @@ fun AddDebtScreen(
             } else {
                 ExposedDropdownMenuBox(
                     expanded = contactMenuExpanded,
-                    onExpandedChange = { contactMenuExpanded = !contactMenuExpanded }
+                    onExpandedChange = { if (!isSaving) contactMenuExpanded = !contactMenuExpanded }
                 ) {
                     OutlinedTextField(
                         value = selectedContact?.fullName ?: "اختر الشخص",
@@ -357,21 +373,21 @@ fun AddDebtScreen(
                 }
             }
 
-            // Amount + Currency
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = amountInput,
-                    onValueChange = { amountInput = it },
+                    onValueChange = { if (!isSaving) amountInput = it },
                     label = { Text("المبلغ *") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
+                    enabled = !isSaving,
                     modifier = Modifier
                         .weight(1.4f)
                         .testTag("debt_amount_input")
                 )
                 ExposedDropdownMenuBox(
                     expanded = currencyExpanded,
-                    onExpandedChange = { currencyExpanded = !currencyExpanded },
+                    onExpandedChange = { if (!isSaving) currencyExpanded = !currencyExpanded },
                     modifier = Modifier.weight(1f)
                 ) {
                     OutlinedTextField(
@@ -401,31 +417,33 @@ fun AddDebtScreen(
                 }
             }
 
-            // Dates
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = { pickDate(recordedAtMillis) { recordedAtMillis = it } },
+                    enabled = !isSaving,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("التسجيل: ${ArabicReportExporter.formatDate(recordedAtMillis)}")
+                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("التسجيل: ${ArabicReportExporter.formatDate(recordedAtMillis)}", style = MaterialTheme.typography.labelMedium)
                 }
                 OutlinedButton(
                     onClick = { pickDate(dueAtMillis) { dueAtMillis = it } },
+                    enabled = !isSaving,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("الاستحقاق: ${ArabicReportExporter.formatDate(dueAtMillis)}")
+                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("الاستحقاق: ${ArabicReportExporter.formatDate(dueAtMillis)}", style = MaterialTheme.typography.labelMedium)
                 }
             }
 
             OutlinedTextField(
                 value = reason,
-                onValueChange = { reason = it },
+                onValueChange = { if (!isSaving) reason = it },
                 label = { Text("وصف سبب الدين *") },
                 singleLine = true,
+                enabled = !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("debt_reason_input")
@@ -433,18 +451,20 @@ fun AddDebtScreen(
 
             OutlinedTextField(
                 value = paymentMethod,
-                onValueChange = { paymentMethod = it },
+                onValueChange = { if (!isSaving) paymentMethod = it },
                 label = { Text("طريقة السداد المتفق عليها") },
                 singleLine = true,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedTextField(
                 value = installmentCountText,
-                onValueChange = { if (it.all(Char::isDigit) && it.length <= 2) installmentCountText = it },
+                onValueChange = { if (!isSaving && it.all(Char::isDigit) && it.length <= 2) installmentCountText = it },
                 label = { Text("عدد الأقساط (0 بدون تقسيط، 2-36 لتوليد أقساط)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -452,6 +472,7 @@ fun AddDebtScreen(
                 onClick = {
                     attachmentPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Rounded.AttachFile, contentDescription = null)
@@ -461,18 +482,20 @@ fun AddDebtScreen(
 
             OutlinedTextField(
                 value = notes,
-                onValueChange = { notes = it },
+                onValueChange = { if (!isSaving) notes = it },
                 label = { Text("ملاحظات إضافية") },
                 minLines = 2,
+                enabled = !isSaving,
                 modifier = Modifier.fillMaxWidth()
             )
 
             if (validationError != null) {
-                Text(validationError!!, color = PayableCoral, style = MaterialTheme.typography.bodySmall)
+                Text(validationError!!, color = hc.negative, style = MaterialTheme.typography.bodySmall)
             }
 
             Button(
                 onClick = {
+                    if (isSaving) return@Button
                     val minor = MoneyMath.parseMajorToMinor(amountInput)
                     if (selectedContactId.isBlank()) {
                         validationError = "يرجى اختيار الشخص"
@@ -488,6 +511,7 @@ fun AddDebtScreen(
                     }
                     val instCount = installmentCountText.toIntOrNull()?.coerceIn(0, 36) ?: 0
                     validationError = null
+                    isSaving = true
                     onSaveDebt(
                         selectedContactId,
                         direction,
@@ -499,17 +523,105 @@ fun AddDebtScreen(
                         paymentMethod,
                         attachmentUri,
                         notes,
-                        instCount
+                        instCount,
+                        formSubmissionKey,
+                        { errMsg ->
+                            isSaving = false
+                            validationError = errMsg
+                        },
+                        { createdDebt ->
+                            isSaving = false
+                            NotificationHelper.showReminderNotification(
+                                context = context,
+                                notificationId = createdDebt.id.hashCode(),
+                                title = "تم تسجيل قيد مالي — حساباتي",
+                                body = "${createdDebt.contactName}: ${MoneyMath.formatMinor(createdDebt.principalMinor, currencyCode = createdDebt.currencyCode)} (${createdDebt.reason})"
+                            )
+                            savedDebtVoucher = createdDebt
+                        }
                     )
                 },
+                enabled = !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(48.dp)
                     .testTag("save_debt_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text("حفظ الدين", fontWeight = FontWeight.Bold)
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("جاري الحفظ...", fontWeight = FontWeight.Bold)
+                } else {
+                    Text("حفظ الدين وإصدار السند", fontWeight = FontWeight.Bold)
+                }
             }
         }
+    }
+
+    savedDebtVoucher?.let { debt ->
+        val dirEnum = runCatching { DebtDirection.valueOf(debt.direction) }.getOrDefault(DebtDirection.RECEIVABLE)
+        val amountFmt = MoneyMath.formatMinor(debt.principalMinor, currencyCode = debt.currencyCode)
+        val voucherNo = "DBT-${debt.id.takeLast(6).uppercase()}"
+        val whatsappMsg = ExternalMessagingHelper.buildFormattedWhatsAppMessage(
+            prefs = state.preferences,
+            title = "سند إشعار تسجيل دين",
+            contactName = debt.contactName,
+            directionLabel = dirEnum.labelAr,
+            principalFormatted = amountFmt,
+            paidFormatted = MoneyMath.formatMinor(0L, currencyCode = debt.currencyCode),
+            remainingFormatted = amountFmt,
+            recordedDateLabel = ArabicReportExporter.formatDate(debt.recordedAtMillis),
+            dueDateLabel = ArabicReportExporter.formatDate(debt.dueAtMillis),
+            reason = debt.reason,
+            notes = debt.notes.orEmpty(),
+            receiptNumber = voucherNo
+        )
+
+        OperationNotificationVoucherDialog(
+            title = "تم حفظ الدين بنجاح",
+            voucherNumber = voucherNo,
+            partyName = debt.contactName,
+            partyPhone = selectedContact?.phone.orEmpty(),
+            directionLabel = dirEnum.labelAr,
+            amountFormatted = amountFmt,
+            remainingFormatted = amountFmt,
+            dateLabel = "الاستحقاق: ${ArabicReportExporter.formatDate(debt.dueAtMillis)}",
+            reason = debt.reason,
+            whatsappMessage = whatsappMsg,
+            onSharePdf = {
+                val pdf = ArabicReportExporter.generateArabicPdfReport(
+                    context = context,
+                    fileNamePrefix = "debt_voucher_$voucherNo",
+                    reportTitle = "سند إشعار قيد مالي ($voucherNo)",
+                    subtitle = "الطرف: ${debt.contactName}",
+                    summaryLines = listOf(
+                        "رقم السند" to voucherNo,
+                        "نوع القيد" to dirEnum.labelAr,
+                        "المبلغ" to amountFmt,
+                        "تاريخ التسجيل" to ArabicReportExporter.formatDate(debt.recordedAtMillis),
+                        "تاريخ الاستحقاق" to ArabicReportExporter.formatDate(debt.dueAtMillis),
+                        "البيان" to debt.reason
+                    ),
+                    rows = listOf(
+                        StatementPdfLine(
+                            dateLabel = ArabicReportExporter.formatDate(debt.recordedAtMillis),
+                            title = debt.reason,
+                            amountLabel = amountFmt,
+                            statusOrMethod = dirEnum.labelAr
+                        )
+                    )
+                )
+                ArabicReportExporter.shareFile(context, pdf, "application/pdf", "مشاركة سند الإشعار")
+            },
+            onDone = {
+                savedDebtVoucher = null
+                onBack()
+            }
+        )
     }
 }

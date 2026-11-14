@@ -1,40 +1,57 @@
 package com.example.ui.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -69,6 +86,7 @@ import com.example.ui.screens.StatementScreen
 import com.example.ui.screens.TransactionDetailScreen
 import com.example.ui.screens.WhatsAppSettingsScreen
 import com.example.ui.screens.WorkspaceMembersScreen
+import com.example.ui.theme.HisabatiTheme
 import com.example.ui.viewmodel.HisabatiViewModel
 
 object HisabatiRoutes {
@@ -115,7 +133,8 @@ private data class TopLevelDestination(
     val route: String,
     val baseRoute: String,
     val label: String,
-    val icon: ImageVector,
+    val activeIcon: ImageVector,
+    val inactiveIcon: ImageVector,
     val testTag: String
 )
 
@@ -141,10 +160,10 @@ fun HisabatiAppShell(
     }
 
     val topDestinations = listOf(
-        TopLevelDestination(HisabatiRoutes.DASHBOARD, HisabatiRoutes.DASHBOARD, "الرئيسية", Icons.Rounded.Home, "nav_dashboard"),
-        TopLevelDestination(HisabatiRoutes.debtsHub(0), "debts_hub", "الديون", Icons.Rounded.AccountBalanceWallet, "nav_debts"),
-        TopLevelDestination(HisabatiRoutes.CONTACTS, HisabatiRoutes.CONTACTS, "الأشخاص", Icons.Rounded.Groups, "nav_contacts"),
-        TopLevelDestination(HisabatiRoutes.MORE_HUB, HisabatiRoutes.MORE_HUB, "المزيد", Icons.Rounded.Apps, "nav_more")
+        TopLevelDestination(HisabatiRoutes.DASHBOARD, HisabatiRoutes.DASHBOARD, "الرئيسية", Icons.Rounded.Home, Icons.Outlined.Home, "nav_dashboard"),
+        TopLevelDestination(HisabatiRoutes.debtsHub(0), "debts_hub", "الديون", Icons.Rounded.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet, "nav_debts"),
+        TopLevelDestination(HisabatiRoutes.CONTACTS, HisabatiRoutes.CONTACTS, "الأشخاص", Icons.Rounded.Group, Icons.Outlined.Group, "nav_contacts"),
+        TopLevelDestination(HisabatiRoutes.MORE_HUB, HisabatiRoutes.MORE_HUB, "المزيد", Icons.Rounded.GridView, Icons.Outlined.GridView, "nav_more")
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -168,20 +187,11 @@ fun HisabatiAppShell(
             bottomBar = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (showTopLevelNav && !isWide) {
-                        NavigationBar(
-                            windowInsets = WindowInsets(0, 0, 0, 0)
-                        ) {
-                            topDestinations.forEach { dest ->
-                                val selected = currentRoute.startsWith(dest.baseRoute)
-                                NavigationBarItem(
-                                    selected = selected,
-                                    onClick = { navigateTopLevel(dest.route) },
-                                    icon = { Icon(dest.icon, contentDescription = dest.label) },
-                                    label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                                    modifier = Modifier.testTag(dest.testTag)
-                                )
-                            }
-                        }
+                        SlimBottomNavigationBar(
+                            destinations = topDestinations,
+                            currentRoute = currentRoute,
+                            onSelect = { navigateTopLevel(it.route) }
+                        )
                     }
                     AnmaSoftFooterBar(
                         modifier = Modifier.navigationBarsPadding()
@@ -202,7 +212,12 @@ fun HisabatiAppShell(
                             NavigationRailItem(
                                 selected = selected,
                                 onClick = { navigateTopLevel(dest.route) },
-                                icon = { Icon(dest.icon, contentDescription = dest.label) },
+                                icon = {
+                                    Icon(
+                                        if (selected) dest.activeIcon else dest.inactiveIcon,
+                                        contentDescription = dest.label
+                                    )
+                                },
                                 label = { Text(dest.label) },
                                 modifier = Modifier.testTag(dest.testTag)
                             )
@@ -228,6 +243,8 @@ fun HisabatiAppShell(
                                 onOpenSearch = { navController.navigate(HisabatiRoutes.SEARCH) },
                                 onOpenAiAssistant = { navController.navigate(HisabatiRoutes.AI_ASSISTANT) },
                                 onOpenContacts = { navigateTopLevel(HisabatiRoutes.CONTACTS) },
+                                onOpenSettings = { navController.navigate(HisabatiRoutes.SETTINGS) },
+                                onSelectCurrency = { code -> viewModel.setDefaultCurrency(code) },
                                 onSyncNow = { viewModel.syncNow() }
                             )
                         }
@@ -279,11 +296,20 @@ fun HisabatiAppShell(
                             val existing = state.contacts.find { it.id == cid }
                             AddEditContactScreen(
                                 existingContact = existing,
+                                preferences = state.preferences,
                                 onBack = { navController.popBackStack() },
-                                onSave = { name, phone, addr, notes, avatar ->
-                                    viewModel.saveContact(existing?.id, name, phone, addr, notes, avatar) {
-                                        navController.popBackStack()
-                                    }
+                                onSave = { name, phone, addr, notes, avatar, idempotencyKey, onError, onSuccess ->
+                                    viewModel.saveContact(
+                                        existingId = existing?.id,
+                                        fullName = name,
+                                        phone = phone,
+                                        address = addr,
+                                        notes = notes,
+                                        avatarUri = avatar,
+                                        idempotencyKey = idempotencyKey,
+                                        onError = onError,
+                                        onSaved = onSuccess
+                                    )
                                 }
                             )
                         }
@@ -324,10 +350,23 @@ fun HisabatiAppShell(
                                 initialDirection = dir,
                                 onBack = { navController.popBackStack() },
                                 onQuickAddContact = { navController.navigate(HisabatiRoutes.addContact()) },
-                                onSaveDebt = { contactId, d, minor, cur, recAt, dueAt, reason, pm, att, notes, instCount ->
-                                    viewModel.addDebt(contactId, d, minor, cur, recAt, dueAt, reason, pm, att, notes, instCount) {
-                                        navController.popBackStack()
-                                    }
+                                onSaveDebt = { contactId, d, minor, cur, recAt, dueAt, reason, pm, att, notes, instCount, idemKey, onError, onSuccess ->
+                                    viewModel.addDebt(
+                                        contactId = contactId,
+                                        direction = d,
+                                        principalMinor = minor,
+                                        currencyCode = cur,
+                                        recordedAtMillis = recAt,
+                                        dueAtMillis = dueAt,
+                                        reason = reason,
+                                        paymentMethod = pm,
+                                        attachmentUri = att,
+                                        notes = notes,
+                                        installmentCount = instCount,
+                                        idempotencyKey = idemKey,
+                                        onError = onError,
+                                        onSaved = onSuccess
+                                    )
                                 }
                             )
                         }
@@ -365,9 +404,21 @@ fun HisabatiAppShell(
                             if (debt != null) {
                                 RecordPaymentScreen(
                                     debt = debt,
+                                    state = state,
                                     onBack = { navController.popBackStack() },
-                                    onSubmitPayment = { amt, disc, method, paidAt, notes, settle, onSuccess ->
-                                        viewModel.recordPayment(debt.id, amt, disc, method, paidAt, notes, settle, onSuccess)
+                                    onSubmitPayment = { amt, disc, method, paidAt, notes, settle, idemKey, onError, onSuccess ->
+                                        viewModel.recordPayment(
+                                            debtId = debt.id,
+                                            amountMinor = amt,
+                                            discountMinor = disc,
+                                            method = method,
+                                            paidAtMillis = paidAt,
+                                            notes = notes,
+                                            settleRemaining = settle,
+                                            idempotencyKey = idemKey,
+                                            onError = onError,
+                                            onSuccess = onSuccess
+                                        )
                                     },
                                     onViewReceipt = { pid ->
                                         navController.popBackStack()
@@ -445,7 +496,12 @@ fun HisabatiAppShell(
                                 onSaveRelayConfig = { wa, sms, url, phId, sid ->
                                     viewModel.setMessagingRelaySettings(wa, sms, url, phId, sid)
                                 },
+                                onSaveWhatsAppFormat = { style, hdr, brk, dts, rsn, ftr, sig ->
+                                    viewModel.setWhatsAppFormatSettings(style, hdr, brk, dts, rsn, ftr, sig)
+                                },
                                 onSaveTemplate = { tpl -> viewModel.saveTemplate(tpl) },
+                                onExportWhatsAppJson = { viewModel.exportWhatsAppConfigJson() },
+                                onImportWhatsAppJson = { viewModel.importWhatsAppConfigJson(it) },
                                 onSendCloudTest = { ch, ph, body, type ->
                                     viewModel.sendBackendRelayMessage(ch, ph, body, type)
                                 }
@@ -511,6 +567,10 @@ fun HisabatiAppShell(
                                 state = state,
                                 onBack = { navController.popBackStack() },
                                 onSetThemeMode = { viewModel.setThemeMode(it) },
+                                onSetThemePalette = { viewModel.setThemePalette(it) },
+                                onApplyCustomColors = { p, a, m -> viewModel.setCustomThemeColors(p, a, m) },
+                                onSaveCustomTheme = { n, p, a, d -> viewModel.saveCustomThemePreset(n, p, a, d) },
+                                onDeleteCustomTheme = { viewModel.deleteCustomThemePreset(it) },
                                 onSetDefaultCurrency = { viewModel.setDefaultCurrency(it) },
                                 onAddCustomCurrency = { code, nameAr, sym, rate ->
                                     viewModel.addCustomCurrency(code, nameAr, sym, rate)
@@ -567,6 +627,75 @@ fun HisabatiAppShell(
                         composable(HisabatiRoutes.HELP_SUPPORT) {
                             HelpSupportScreen(onBack = { navController.popBackStack() })
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SlimBottomNavigationBar(
+    destinations: List<TopLevelDestination>,
+    currentRoute: String,
+    onSelect: (TopLevelDestination) -> Unit
+) {
+    val hc = HisabatiTheme.colors
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            HorizontalDivider(thickness = 0.5.dp, color = hc.dividerSubtle)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                destinations.forEach { dest ->
+                    val selected = currentRoute.startsWith(dest.baseRoute)
+                    val interactionSource = remember { MutableInteractionSource() }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                            ) { onSelect(dest) }
+                            .testTag(dest.testTag),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.13f)
+                                    else Color.Transparent
+                                )
+                                .padding(horizontal = 14.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (selected) dest.activeIcon else dest.inactiveIcon,
+                                contentDescription = dest.label,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(1.dp))
+                        Text(
+                            text = dest.label,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
                     }
                 }
             }
