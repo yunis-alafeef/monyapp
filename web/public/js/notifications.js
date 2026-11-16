@@ -71,6 +71,7 @@ export function evaluateDueNotifications({
   installments = [],
   reminders = [],
   existingNotifications = [],
+  currencies = [],
   prefs = {},
   nowMillis = Date.now()
 }) {
@@ -93,7 +94,7 @@ export function evaluateDueNotifications({
     if (!isOpen) continue;
 
     const dirAction = debt.direction === "RECEIVABLE" ? "تحصيل من" : "سداد إلى";
-    const amtText = formatMinor(debt.remainingMinor, debt.currencyCode);
+    const amtText = formatMinor(debt.remainingMinor, debt.currencyCode, currencies);
 
     if (debt.dueAtMillis < nowMillis) {
       const id = `due_debt_over_${debt.id}_${dayBucket}`;
@@ -135,7 +136,7 @@ export function evaluateDueNotifications({
     const currency = parentDebt?.currencyCode || prefs.defaultCurrency || "YER";
     const contactName = parentDebt?.contactName || "عميل";
     const dirAction = parentDebt?.direction === "PAYABLE" ? "سداد قسط إلى" : "تحصيل قسط من";
-    const instAmt = formatMinor(remainingInst, currency);
+    const instAmt = formatMinor(remainingInst, currency, currencies);
 
     if (inst.dueAtMillis < nowMillis) {
       if (inst.status !== "OVERDUE") {
@@ -182,7 +183,7 @@ export function evaluateDueNotifications({
         title: rem.title,
         body: rem.message,
         category: "CUSTOM_REMINDER",
-        relatedDebtId: rem.debtId || null,
+        relatedDebtId: rem.debtId && rem.debtId !== "general" ? rem.debtId : null,
         isRead: false,
         createdAtMillis: nowMillis
       });

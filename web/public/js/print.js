@@ -52,8 +52,8 @@ export function buildInvoiceHtml(prefs, doc) {
 
   const outerFrameStyle =
     template === "DOUBLE_FRAME_VOUCHER"
-      ? `border:3px double ${primary};padding:14px;border-radius:10px;`
-      : "";
+      ? `border:3px double ${primary};padding:14px;border-radius:10px;position:relative;`
+      : "position:relative;";
 
   const logoBlock = prefs?.printShowLogoInHeader !== false
     ? prefs?.printLogoDataUrl
@@ -70,6 +70,12 @@ export function buildInvoiceHtml(prefs, doc) {
   const inmaHeader = prefs?.printShowInmaSoftInHeader !== false
     ? `<div style="font-weight:800;color:${darkHeader ? "#fff" : accent};font-size:11.5px;">انما سوفت | Inma Soft</div>
        <div style="font-size:10.5px;opacity:.9;">للتطوير والحلول الذكية • 772317950</div>`
+    : "";
+
+  const watermarkHtml = prefs?.printShowWatermarkBadge !== false
+    ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0.06;font-size:44px;font-weight:900;color:${primary};transform:rotate(-18deg);z-index:0;">
+         ${escapeHtml(company)}
+       </div>`
     : "";
 
   const summaryBoxes = (doc.summary || [])
@@ -96,7 +102,8 @@ export function buildInvoiceHtml(prefs, doc) {
 
   return `
     <div style="${outerFrameStyle}">
-      <div class="inv-header" style="${headerStyle}">
+      ${watermarkHtml}
+      <div class="inv-header" style="${headerStyle};position:relative;z-index:1;">
         <div style="text-align:right;">
           <div style="font-size:15px;font-weight:800;">${escapeHtml(company)}</div>
           <div style="font-size:10.5px;opacity:.9;margin-top:3px;">${orgMeta}</div>
@@ -108,14 +115,14 @@ export function buildInvoiceHtml(prefs, doc) {
         </div>
       </div>
 
-      <div style="background:${primary}10;border:1px solid ${primary}33;border-radius:8px;padding:8px 12px;margin-bottom:10px;">
+      <div style="background:${primary}10;border:1px solid ${primary}33;border-radius:8px;padding:8px 12px;margin-bottom:10px;position:relative;z-index:1;">
         <div style="font-size:15px;font-weight:800;color:${primary};">${escapeHtml(doc.title)}</div>
         <div style="font-size:11.5px;color:#475569;">${escapeHtml(doc.subtitle || "")}</div>
       </div>
 
-      <div class="inv-grid">${summaryBoxes}</div>
+      <div class="inv-grid" style="position:relative;z-index:1;">${summaryBoxes}</div>
 
-      <table class="inv-table">
+      <table class="inv-table" style="position:relative;z-index:1;">
         <thead>
           <tr style="background:${primary};color:#fff;">
             <th>التاريخ</th>
@@ -129,7 +136,7 @@ export function buildInvoiceHtml(prefs, doc) {
 
       ${signatures}
 
-      <div class="inv-footer">
+      <div class="inv-footer" style="position:relative;z-index:1;">
         <div>${escapeHtml(prefs?.printFooterNote || "شكراً لتعاملكم معنا • حساباتي")}</div>
         ${prefs?.printShowInmaSoftInFooter !== false
           ? `<div style="font-weight:800;color:${primary};">عمل انما سوفت (Inma Soft) • هاتف: 772317950</div>`
@@ -137,6 +144,26 @@ export function buildInvoiceHtml(prefs, doc) {
       </div>
     </div>
   `;
+}
+
+export function buildLiveInvoicePreviewHtml(prefs, docKind = "DEBT_VOUCHER") {
+  return buildInvoiceHtml(prefs, {
+    docKind,
+    title: "معاينة حية للفاتورة والسند",
+    subtitle: "نموذج استرشادي قبل الطباعة أو التصدير PDF",
+    summary: [
+      ["الطرف", "عميل نموذجي"],
+      ["المبلغ", `100,000 ${prefs?.defaultCurrency || "YER"}`]
+    ],
+    rows: [
+      {
+        date: formatDate(Date.now()),
+        title: "بند تجريبي يوضح شكل الترويسة والجدول والختم",
+        amount: `100,000 ${prefs?.defaultCurrency || "YER"}`,
+        status: "معاينة"
+      }
+    ]
+  });
 }
 
 export function printInvoiceSheet(prefs, doc) {

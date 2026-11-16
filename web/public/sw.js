@@ -1,4 +1,4 @@
-const CACHE_VERSION = "hisabati-pwa-v1.2.0";
+const CACHE_VERSION = "hisabati-pwa-v2.0.0";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -13,6 +13,8 @@ const SHELL_ASSETS = [
   "./js/whatsapp.js",
   "./js/print.js",
   "./js/cloud.js",
+  "./js/reports.js",
+  "./js/pages_admin.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png"

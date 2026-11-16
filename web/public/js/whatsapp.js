@@ -45,11 +45,42 @@ export function buildFormattedWhatsAppMessage(prefs, params) {
   return lines.join("\n");
 }
 
+export function renderTemplateText(templateBody, vars = {}) {
+  let out = String(templateBody || "");
+  const replacements = {
+    "{الاسم}": vars.name || "العميل الكريم",
+    "{المبلغ}": vars.amount || "0",
+    "{المتبقي}": vars.remaining || vars.amount || "0",
+    "{السبب}": vars.reason || "معاملة مالية",
+    "{التاريخ}": vars.date || "",
+    "{رقم_الإيصال}": vars.receiptNumber || "",
+    "{الإجمالي}": vars.total || vars.amount || "0",
+    "{المسدد}": vars.paid || "0"
+  };
+  for (const [token, val] of Object.entries(replacements)) {
+    out = out.split(token).join(String(val));
+  }
+  return out;
+}
+
 export function openWhatsAppShare(phone, message) {
   const cleanPhone = sanitizePhone(phone);
   const encoded = encodeURIComponent(message);
   const url = cleanPhone
     ? `https://wa.me/${cleanPhone}?text=${encoded}`
     : `https://wa.me/?text=${encoded}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+  return url;
+}
+
+export function openSmsComposer(phone, message) {
+  const cleanPhone = sanitizePhone(phone) || String(phone || "").replace(/[^\d+]/g, "");
+  const encoded = encodeURIComponent(String(message || ""));
+  const url = cleanPhone ? `sms:${cleanPhone}?body=${encoded}` : `sms:?body=${encoded}`;
+  if (typeof window !== "undefined") {
+    window.location.href = url;
+  }
+  return url;
 }

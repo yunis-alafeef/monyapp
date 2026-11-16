@@ -30,6 +30,7 @@ function normalizeArabic(text) {
 
 export function computeAiSnapshot(state, nowMillis = Date.now()) {
   const cur = state?.preferences?.defaultCurrency || "YER";
+  const currencies = Array.isArray(state?.currencies) ? state.currencies : [];
   const debts = Array.isArray(state?.debts) ? state.debts : [];
   const payments = Array.isArray(state?.payments) ? state.payments : [];
   const installments = Array.isArray(state?.installments) ? state.installments : [];
@@ -53,7 +54,7 @@ export function computeAiSnapshot(state, nowMillis = Date.now()) {
   const debtMap = new Map(debts.map((d) => [d.id, d]));
 
   for (const d of debts) {
-    const rem = convertMinor(d.remainingMinor || 0, d.currencyCode || cur, cur);
+    const rem = convertMinor(d.remainingMinor || 0, d.currencyCode || cur, cur, currencies);
     if (d.direction === "RECEIVABLE") {
       totalReceivable += rem;
       if (isOpenDebt(d)) {
@@ -77,7 +78,7 @@ export function computeAiSnapshot(state, nowMillis = Date.now()) {
 
   for (const p of payments) {
     const d = debtMap.get(p.debtId);
-    const amt = convertMinor(p.amountMinor || 0, p.currencyCode || cur, cur);
+    const amt = convertMinor(p.amountMinor || 0, p.currencyCode || cur, cur, currencies);
     const isRec = d ? d.direction === "RECEIVABLE" : true;
     if (isRec) {
       totalCollected += amt;
@@ -112,6 +113,7 @@ export function computeAiSnapshot(state, nowMillis = Date.now()) {
 
   return {
     cur,
+    currencies,
     contactsCount: contacts.length,
     debtsCount: debts.length,
     paymentsCount: payments.length,
@@ -135,6 +137,7 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
   const q = normalizeArabic(qRaw);
   const snap = computeAiSnapshot(state, nowMillis);
   const cur = snap.cur;
+  const currencies = snap.currencies;
   const contacts = Array.isArray(state?.contacts) ? state.contacts : [];
   const debts = Array.isArray(state?.debts) ? state.debts : [];
 
@@ -146,20 +149,20 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
   if (matchedContact) {
     const cDebts = debts.filter((d) => d.contactId === matchedContact.id || d.contactName === matchedContact.fullName);
     const openRec = cDebts.filter((d) => d.direction === "RECEIVABLE" && isOpenDebt(d))
-      .reduce((s, d) => s + convertMinor(d.remainingMinor, d.currencyCode || cur, cur), 0);
+      .reduce((s, d) => s + convertMinor(d.remainingMinor, d.currencyCode || cur, cur, currencies), 0);
     const openPay = cDebts.filter((d) => d.direction === "PAYABLE" && isOpenDebt(d))
-      .reduce((s, d) => s + convertMinor(d.remainingMinor, d.currencyCode || cur, cur), 0);
+      .reduce((s, d) => s + convertMinor(d.remainingMinor, d.currencyCode || cur, cur, currencies), 0);
     const net = openRec - openPay;
     const lines = [
       `تحليل حساب العميل: ${matchedContact.fullName}`,
-      `• مستحق لك عليه: ${formatMinor(openRec, cur)}`,
-      `• مستحق له عليك: ${formatMinor(openPay, cur)}`,
-      `• صافي الرصيد: ${formatSignedMinor(net, cur)}`,
+      `• مستحق لك عليه: ${formatMinor(openRec, cur, currencies)}`,
+      `• مستحق له عليك: ${formatMinor(openPay, cur, currencies)}`,
+      `• صافي الرصيد: ${formatSignedMinor(net, cur, currencies)}`,
       `• إجمالي السجلات المرتبطة: ${cDebts.length} معاملة`
     ];
     const nextOverdue = cDebts.find((d) => isOpenDebt(d) && d.dueAtMillis < nowMillis);
     if (nextOverdue) {
-      lines.push(`• تنبيه: يوجد دين متأخر منذ ${formatDate(nextOverdue.dueAtMillis)} بقيمة ${formatMinor(nextOverdue.remainingMinor, nextOverdue.currencyCode || cur)}.`);
+      lines.push(`• تنبيه: يوجد دين متأخر منذ ${formatDate(nextOverdue.dueAtMillis)} بقيمة ${formatMinor(nextOverdue.remainingMinor, nextOverdue.currencyCode || cur, currencies)}.`);
     }
     return lines.join("\n");
   }
@@ -167,9 +170,9 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
   // 2. Total Receivables
   if (q.includes("مستحق لي") || (q.includes("الديون التي لي") && !q.includes("علي"))) {
     const topLines = snap.topDebtors.slice(0, 3)
-      .map(([name, val], i) => `${i + 1}. ${name}: ${formatMinor(val, cur)}`);
+      .map(([name, val], i) => `${i + 1}. ${name}: ${formatMinor(val, cur, currencies)}`);
     return [
-      `إجمالي المستحق لك حالياً هو ${formatMinor(snap.totalReceivable, cur)} موزعة على ${snap.topDebtors.length} عميل.`,
+      `إجمالي المستحق لك حالياً هو ${formatMinor(snap.totalReceivable, cur, currencies)} موزعة على ${snap.topDebtors.length} عميل.`,
       topLines.length ? `أبرز المستحقات المفتوحة:\n${topLines.join("\n")}` : "لا توجد مستحقات مفتوحة حالياً.",
       snap.overdueDebts.length > 0
         ? `توصية: ركّز أولاً على متابعة ${snap.overdueDebts.length} سجل متأخر عبر سندات واتساب من تبويب الديون.`
@@ -180,11 +183,11 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
   // 3. Total Payables
   if (q.includes("مستحق علي") || q.includes("التزامات") || q.includes("مطالب")) {
     const topLines = snap.topCreditors.slice(0, 3)
-      .map(([name, val], i) => `${i + 1}. ${name}: ${formatMinor(val, cur)}`);
+      .map(([name, val], i) => `${i + 1}. ${name}: ${formatMinor(val, cur, currencies)}`);
     return [
-      `إجمالي المستحق عليك حالياً هو ${formatMinor(snap.totalPayable, cur)} لصالح ${snap.topCreditors.length} جهة.`,
+      `إجمالي المستحق عليك حالياً هو ${formatMinor(snap.totalPayable, cur, currencies)} لصالح ${snap.topCreditors.length} جهة.`,
       topLines.length ? `أبرز الالتزامات القائمة:\n${topLines.join("\n")}` : "سجلك خالٍ من أي التزامات أو ديون عليك حالياً.",
-      `صافي مركزك المالي بعد خصم الالتزامات: ${formatSignedMinor(snap.netPosition, cur)}.`
+      `صافي مركزك المالي بعد خصم الالتزامات: ${formatSignedMinor(snap.netPosition, cur, currencies)}.`
     ].join("\n\n");
   }
 
@@ -195,10 +198,10 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
     }
     const [topName, topAmount] = snap.topDebtors[0];
     const ranking = snap.topDebtors.slice(0, 5)
-      .map(([name, val], idx) => `${idx + 1}. ${name}: ${formatMinor(val, cur)}`)
+      .map(([name, val], idx) => `${idx + 1}. ${name}: ${formatMinor(val, cur, currencies)}`)
       .join("\n");
     return [
-      `أكثر شخص عليه ديون مستحقة لك هو «${topName}» بإجمالي ${formatMinor(topAmount, cur)}.`,
+      `أكثر شخص عليه ديون مستحقة لك هو «${topName}» بإجمالي ${formatMinor(topAmount, cur, currencies)}.`,
       `قائمة أعلى الأرصدة المستحقة لك:\n${ranking}`,
       "توصية: يمكنك إرسال تذكير مطالبة متوازن عبر واتساب أو طباعة كشف حسابه مباشرة."
     ].join("\n\n");
@@ -211,10 +214,10 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
     }
     const overdueSum = snap.overdueDebts.reduce((s, d) => s + d.convertedRemaining, 0);
     const items = snap.overdueDebts.slice(0, 6)
-      .map((d) => `• ${d.contactName}: ${formatMinor(d.remainingMinor, d.currencyCode || cur)} (استحق ${formatDate(d.dueAtMillis)})`)
+      .map((d) => `• ${d.contactName}: ${formatMinor(d.remainingMinor, d.currencyCode || cur, currencies)} (استحق ${formatDate(d.dueAtMillis)})`)
       .join("\n");
     return [
-      `يوجد ${snap.overdueDebts.length} دين متأخر بإجمالي يعادل ${formatMinor(overdueSum, cur)}:`,
+      `يوجد ${snap.overdueDebts.length} دين متأخر بإجمالي يعادل ${formatMinor(overdueSum, cur, currencies)}:`,
       items,
       "توصية: ابدأ بالمطالبة بالأقدم استحقاقاً أو أعد جدولتها على أقساط منتظمة."
     ].join("\n\n");
@@ -226,7 +229,7 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
       return "لا توجد أقساط متأخرة أو مستحقة خلال الأيام السبعة القادمة.";
     }
     const lines = snap.dueInstallments.slice(0, 8).map((ins) =>
-      `• ${ins.contactName} — القسط #${ins.installmentNumber} (${ins.isOverdue ? "متأخر" : "قادم"}): ${formatMinor(ins.remainingMinor, ins.currencyCode)} بتاريخ ${formatDate(ins.dueAtMillis)}`
+      `• ${ins.contactName} — القسط #${ins.installmentNumber} (${ins.isOverdue ? "متأخر" : "قادم"}): ${formatMinor(ins.remainingMinor, ins.currencyCode, currencies)} بتاريخ ${formatDate(ins.dueAtMillis)}`
     ).join("\n");
     return [
       `الأقساط المستحقة أو المتأخرة خلال 7 أيام (${snap.dueInstallments.length} قسط):`,
@@ -239,10 +242,10 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
   if (q.includes("تحصيل") || q.includes("حصل") || q.includes("محصل")) {
     return [
       `ملخص التحصيل والسداد (${cur}):`,
-      `• المحصل خلال هذا الشهر: ${formatMinor(snap.monthCollected, cur)}`,
-      `• المسدد للغير خلال هذا الشهر: ${formatMinor(snap.monthPaidOut, cur)}`,
-      `• إجمالي التحصيل التراكمي: ${formatMinor(snap.totalCollected, cur)}`,
-      `• إجمالي المسدد التراكمي: ${formatMinor(snap.totalPaidOut, cur)}`
+      `• المحصل خلال هذا الشهر: ${formatMinor(snap.monthCollected, cur, currencies)}`,
+      `• المسدد للغير خلال هذا الشهر: ${formatMinor(snap.monthPaidOut, cur, currencies)}`,
+      `• إجمالي التحصيل التراكمي: ${formatMinor(snap.totalCollected, cur, currencies)}`,
+      `• إجمالي المسدد التراكمي: ${formatMinor(snap.totalPaidOut, cur, currencies)}`
     ].join("\n");
   }
 
@@ -260,10 +263,10 @@ export function answerFinancialQuestionLocally({ question, state, nowMillis = Da
 
   return [
     `الملخص المالي الذكي (${cur}):`,
-    `• إجمالي المستحق لي: ${formatMinor(snap.totalReceivable, cur)}`,
-    `• إجمالي المستحق عليّ: ${formatMinor(snap.totalPayable, cur)}`,
-    `• صافي المركز المالي: ${formatSignedMinor(snap.netPosition, cur)}`,
-    `• المحصل هذا الشهر: ${formatMinor(snap.monthCollected, cur)} | الإجمالي: ${formatMinor(snap.totalCollected, cur)}`,
+    `• إجمالي المستحق لي: ${formatMinor(snap.totalReceivable, cur, currencies)}`,
+    `• إجمالي المستحق عليّ: ${formatMinor(snap.totalPayable, cur, currencies)}`,
+    `• صافي المركز المالي: ${formatSignedMinor(snap.netPosition, cur, currencies)}`,
+    `• المحصل هذا الشهر: ${formatMinor(snap.monthCollected, cur, currencies)} | الإجمالي: ${formatMinor(snap.totalCollected, cur, currencies)}`,
     `• الديون المتأخرة: ${snap.overdueDebts.length} | أقساط هذا الأسبوع: ${snap.dueInstallments.length}`,
     `• عدد الأشخاص: ${snap.contactsCount} | إجمالي المعاملات: ${snap.debtsCount + snap.paymentsCount}`,
     `\nالتوصية العملية:\n- ${tips.join("\n- ")}`

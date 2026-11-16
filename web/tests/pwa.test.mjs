@@ -4,8 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { convertMinor, formatMinor, parseMajorToMinor } from "../public/js/money.js";
-import { buildFormattedWhatsAppMessage } from "../public/js/whatsapp.js";
+import {
+  buildCsvContent,
+  convertMinor,
+  formatMinor,
+  parseMajorToMinor
+} from "../public/js/money.js";
+import {
+  buildFormattedWhatsAppMessage,
+  openSmsComposer,
+  renderTemplateText
+} from "../public/js/whatsapp.js";
 import { buildInvoiceHtml, PDF_TEMPLATES } from "../public/js/print.js";
 import {
   allocatePaymentToInstallments,
@@ -18,6 +27,12 @@ import {
   renderReceivablePayableDonutHtml
 } from "../public/js/charts.js";
 import { AI_QUICK_PROMPTS, answerFinancialQuestionLocally } from "../public/js/ai.js";
+import { buildFirestorePayload } from "../public/js/cloud.js";
+import {
+  buildContactStatementData,
+  buildReportDocument,
+  getActiveMemberPermissions
+} from "../public/js/reports.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
@@ -49,6 +64,13 @@ test("PWA manifest, icons, Apple meta tags, notificationclick SW, and silent reg
   assert.ok(swJs.includes("./js/charts.js"));
   assert.ok(swJs.includes("./js/ai.js"));
 
+  // Every JS file in public/js/ must be precached by sw.js
+  for (const file of fs.readdirSync(path.join(publicDir, "js"))) {
+    if (file.endsWith(".js")) {
+      assert.ok(swJs.includes(`./js/${file}`), `Missing ./js/${file} in sw.js SHELL_ASSETS`);
+    }
+  }
+
   const appJs = fs.readFileSync(path.join(publicDir, "js/app.js"), "utf8");
   assert.ok(appJs.includes('navigator.serviceWorker.register("./sw.js"'));
   assert.ok(appJs.includes("renderAiAssistantPage"));
@@ -58,11 +80,14 @@ test("PWA manifest, icons, Apple meta tags, notificationclick SW, and silent reg
   assert.ok(readme.includes("[ضع رابط الاستضافة هنا]"));
 });
 
-test("Yemeni Rial minor-unit math, currency conversion, WhatsApp formatter, and 4 invoice templates work", () => {
+test("Yemeni Rial minor-unit math, custom currency conversion, WhatsApp/SMS formatter, and 4 invoice templates work", () => {
+  const customCurrencies = [{ code: "KWD", nameAr: "دينار كويتي", symbol: "د.ك", rateToUsdMicros: 3_250_000, isCustom: true }];
   assert.equal(parseMajorToMinor("1,250.50"), 125050);
   assert.equal(parseMajorToMinor("١٠٠"), 10000);
   assert.equal(formatMinor(500000, "YER"), "5,000 ر.ي");
+  assert.equal(formatMinor(10000, "KWD", customCurrencies), "100 د.ك");
   assert.ok(convertMinor(10000, "USD", "YER") > 10000);
+  assert.equal(convertMinor(10000, "KWD", "USD", customCurrencies), 32500);
 
   const msg = buildFormattedWhatsAppMessage(
     { workspaceName: "متجر اليمن", whatsappStyle: "FORMAL" },
@@ -77,9 +102,13 @@ test("Yemeni Rial minor-unit math, currency conversion, WhatsApp formatter, and 
   assert.ok(msg.includes("خالد علي"));
   assert.ok(msg.includes("5,000 ر.ي"));
 
+  const tplText = renderTemplateText("مرحباً {الاسم}، المتبقي {المتبقي}", { name: "ياسر", remaining: "200 $" });
+  assert.equal(tplText, "مرحباً ياسر، المتبقي 200 $");
+  assert.ok(openSmsComposer("772317950", "مرحباً").startsWith("sms:967772317950?body="));
+
   for (const tpl of PDF_TEMPLATES) {
     const html = buildInvoiceHtml(
-      { printTemplate: tpl.id, printCompanyName: "مؤسسة الأمل", printDebtColorHex: "#0B1B32" },
+      { printTemplate: tpl.id, printCompanyName: "مؤسسة الأمل", printDebtColorHex: "#0B1B32", printShowWatermarkBadge: true },
       {
         docKind: "DEBT_VOUCHER",
         title: "سند قيد مالي",
@@ -231,3 +260,62 @@ test("Web/iPhone PWA Smart Financial AI answers receivables, overdue debts, inst
   const summaryAnswer = answerFinancialQuestionLocally({ question: "اعطني ملخصاً عن هذا الشهر", state, nowMillis: now });
   assert.ok(summaryAnswer.includes("صافي المركز المالي"));
 });
+
+test("Firestore payload builder enforces firestore.rules schema, CSV UTF-8 BOM, Reports, Statements, and RBAC parity", () => {
+  const uid = "user_abc123";
+  const ts = () => "SERVER_TS";
+
+  // 1) Contacts: strip >490 char data URI so firestore.rules <=500 never fails; update excludes createdAt
+  const bigAvatar = "data:image/jpeg;base64," + "a".repeat(600);
+  const cCreate = buildFirestorePayload("contacts", { fullName: "صالح", phone: "770001112", avatarUri: bigAvatar }, uid, true, ts);
+  assert.equal(cCreate.userId, uid);
+  assert.equal(cCreate.avatarUri, null);
+  assert.equal(cCreate.createdAt, "SERVER_TS");
+
+  const cUpdate = buildFirestorePayload("contacts", { fullName: "صالح", phone: "770001112", avatarUri: "https://ex.com/a.jpg" }, uid, false, ts);
+  assert.equal("createdAt" in cUpdate, false);
+  assert.equal("userId" in cUpdate, false);
+  assert.equal(cUpdate.avatarUri, "https://ex.com/a.jpg");
+
+  // 2) Debts: update omits immutable fields (principalMinor, direction, currencyCode, createdAt)
+  const dUpdate = buildFirestorePayload("debts", { contactId: "c1", contactName: "صالح", principalMinor: 50000, remainingMinor: 20000, direction: "RECEIVABLE", currencyCode: "YER" }, uid, false, ts);
+  assert.equal("principalMinor" in dUpdate, false);
+  assert.equal("direction" in dUpdate, false);
+  assert.equal("createdAt" in dUpdate, false);
+  assert.equal(dUpdate.remainingMinor, 20000);
+
+  // 3) Payments & Audit Logs: create-only (update returns null)
+  assert.equal(buildFirestorePayload("payments", { debtId: "d1", contactId: "c1", amountMinor: 1000 }, uid, false, ts), null);
+  assert.equal(buildFirestorePayload("audit_logs", { action: "edit" }, uid, false, ts), null);
+  const pCreate = buildFirestorePayload("payments", { debtId: "d1", contactId: "c1", amountMinor: 1000, receiptNumber: "R-1" }, uid, true, ts);
+  assert.equal("updatedAt" in pCreate, false);
+  assert.ok(pCreate.idempotencyKey.length >= 8);
+
+  // 4) Reminders: invalid empty debtId/contactId fallback to valid alphanumeric IDs
+  const rCreate = buildFirestorePayload("reminders", { debtId: "", contactId: "", title: "تذكير", message: "نص" }, uid, true, ts);
+  assert.equal(rCreate.debtId, "general");
+  assert.equal(rCreate.contactId, "general");
+
+  // 5) CSV BOM & Reports & Statement & RBAC
+  const csv = buildCsvContent([{ id: "d1", contactName: "أحمد", direction: "RECEIVABLE", principalMinor: 10000, remainingMinor: 5000, currencyCode: "YER", recordedAtMillis: 1_760_000_000_000, dueAtMillis: 1_760_000_000_000, status: "PARTIAL", reason: "سلفة" }]);
+  assert.ok(csv.startsWith("\uFEFFالمعرف,الشخص,الاتجاه"));
+
+  const sampleState = {
+    preferences: { defaultCurrency: "YER", activeMemberId: "staff_1" },
+    members: [{ id: "staff_1", displayName: "موظف", role: "STAFF", canAddDebt: true, canEditDebt: false, canRecordPayment: true, canViewReports: false }],
+    contacts: [{ id: "c1", fullName: "أحمد", phone: "771122334" }],
+    debts: [{ id: "d1", contactId: "c1", contactName: "أحمد", direction: "RECEIVABLE", principalMinor: 10000, remainingMinor: 5000, currencyCode: "YER", recordedAtMillis: 1_760_000_000_000, dueAtMillis: 1_760_000_000_000, status: "PARTIAL", reason: "سلفة" }],
+    payments: [],
+    currencies: []
+  };
+  const perms = getActiveMemberPermissions(sampleState);
+  assert.equal(perms.canAddDebt, true);
+  assert.equal(perms.canEditDebt, false);
+  assert.equal(perms.canViewReports, false);
+
+  const report = buildReportDocument(sampleState, "RECEIVABLES");
+  assert.equal(report.rows.length, 1);
+  const st = buildContactStatementData(sampleState, "c1", 0);
+  assert.equal(st.currencySummaries[0].recRemaining, 5000);
+});
+
