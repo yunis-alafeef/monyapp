@@ -10,6 +10,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
+data class AiHistoryTurn(
+    val isUser: Boolean,
+    val text: String
+)
+
 class AiFinancialRepository {
     private val model by lazy {
         Firebase.ai.generativeModel(
@@ -17,7 +22,7 @@ class AiFinancialRepository {
             systemInstruction = content {
                 text(
                     """
-                    أنت المساعد المالي الذكي لتطبيق "حساباتي".
+                    أنت المساعد المالي الذكي لتطبيق "حساباتي" لإدارة الديون والأقساط والمحافظ المالية.
                     قواعد صارمة:
                     1. أجب باللغة العربية الفصحى الواضحة والمختصرة وبنبرة مالية مهنية.
                     2. اعتمد حصرياً على البيانات الرقمية الحقيقية المقدمة لك في سياق الحساب.
@@ -32,11 +37,12 @@ class AiFinancialRepository {
 
     fun streamFinancialAnswer(
         question: String,
-        accountContextSummary: String
+        accountContextSummary: String,
+        chatHistory: List<AiHistoryTurn> = emptyList()
     ): Flow<AiStreamEvent> = flow {
         emit(AiStreamEvent.Loading)
         val prompt = """
-            بيانات الحساب الفعلية الموثقة من قاعدة البيانات:
+            بيانات الحساب الفعلية الموثقة من قاعدة البيانات (محدّثة الآن):
             $accountContextSummary
 
             سؤال المستخدم:
@@ -46,7 +52,17 @@ class AiFinancialRepository {
         val accumulated = StringBuilder()
         try {
             withTimeout(60_000L) {
-                model.generateContentStream(prompt).collect { chunk ->
+                val flowStream = if (chatHistory.isEmpty()) {
+                    model.generateContentStream(prompt)
+                } else {
+                    val formattedHistory = chatHistory.takeLast(8).map { turn ->
+                        content(if (turn.isUser) "user" else "model") {
+                            text(turn.text)
+                        }
+                    }
+                    model.startChat(history = formattedHistory).sendMessageStream(prompt)
+                }
+                flowStream.collect { chunk ->
                     val piece = chunk.text.orEmpty()
                     if (piece.isNotEmpty()) {
                         accumulated.append(piece)
@@ -66,9 +82,11 @@ class AiFinancialRepository {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Firebase AI Logic inference failed", e)
+            val detail = e.localizedMessage?.takeIf { it.isNotBlank() }
             emit(
                 AiStreamEvent.Error(
-                    e.localizedMessage ?: "تعذر الاتصال بالمساعد المالي الذكي."
+                    if (detail != null) "تعذر الاتصال بخدمة الذكاء الاصطناعي: $detail"
+                    else "تعذر الاتصال بالمساعد المالي الذكي. تأكد من الاتصال بالإنترنت."
                 )
             )
         }

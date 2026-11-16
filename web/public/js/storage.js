@@ -8,6 +8,7 @@ export const DEFAULT_PREFS = {
   defaultCurrency: "YER",
   accountType: "PERSONAL",
   workspaceName: "محفظتي الشخصية",
+  aiConsentGranted: false,
   notificationsEnabled: true,
   defaultReminderHour: 9,
   defaultReminderMinute: 0,

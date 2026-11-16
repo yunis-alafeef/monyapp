@@ -40,6 +40,7 @@ import {
   renderMonthlyCashflowChartHtml,
   renderReceivablePayableDonutHtml
 } from "./charts.js";
+import { AI_QUICK_PROMPTS, answerFinancialQuestionLocally } from "./ai.js";
 import { buildFormattedWhatsAppMessage, openWhatsAppShare } from "./whatsapp.js";
 import {
   PDF_COLOR_SWATCHES,
@@ -88,7 +89,9 @@ const ICONS = {
   chat: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`,
   phone: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.01-.24c1.12.37 2.33.57 3.58.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.61 21 3 13.39 3 4c0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.46.57 3.58.11.35.03.74-.25 1.02l-2.2 2.19z"/></svg>`,
   back: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>`,
-  verified: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>`
+  verified: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>`,
+  sparkle: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="m19 9 1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>`,
+  send: `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>`
 };
 
 const PALETTES = [
@@ -101,7 +104,7 @@ const PALETTES = [
 ];
 
 const state = {
-  tab: "dashboard", // dashboard | debts | contacts | more | notifications | reminders | whatsapp | settings | search
+  tab: "dashboard", // dashboard | debts | contacts | more | ai | notifications | reminders | whatsapp | settings | search
   debtFilter: "ALL",
   searchQuery: "",
   contacts: [],
@@ -111,6 +114,8 @@ const state = {
   reminders: [],
   notifications: [],
   outbox: [],
+  aiMessages: [],
+  aiPendingQuestion: "",
   preferences: { ...DEFAULT_PREFS },
   cloudUser: null,
   modal: null,
@@ -253,6 +258,30 @@ async function runDueNotificationCheck({ dispatchOs = true, manualFeedback = fal
   return result.newNotifications.length;
 }
 
+function runAiPrompt(question) {
+  const q = String(question || "").trim();
+  if (!q) return;
+  const answer = answerFinancialQuestionLocally({ question: q, state, nowMillis: Date.now() });
+  state.aiMessages = [
+    ...state.aiMessages,
+    { id: `u_${uid()}`, isUser: true, text: q },
+    { id: `a_${uid()}`, isUser: false, text: answer }
+  ];
+  render();
+}
+
+function handleAiSubmission(question) {
+  const q = String(question || "").trim();
+  if (!q) return;
+  if (!state.preferences.aiConsentGranted) {
+    state.aiPendingQuestion = q;
+    render();
+    return;
+  }
+  state.aiPendingQuestion = "";
+  runAiPrompt(q);
+}
+
 function renderTopBar() {
   const unread = state.notifications.filter((n) => !n.isRead).length;
   const userName = state.cloudUser?.displayName || "بك";
@@ -321,6 +350,18 @@ function renderDashboard() {
         <button class="btn btn-hero-glass" data-action="quick-payment">${ICONS.pay}<span>تسجيل دفعة</span></button>
       </div>
     </section>
+
+    <!-- Compact AI Assistant Banner matching Android DashboardScreen.kt -->
+    <div class="card ai-banner-card card-clickable" data-action="go-tab" data-val="ai">
+      <span class="tile-icon-box" style="background:rgba(16,185,129,0.16);color:var(--accent);width:36px;height:36px;">
+        ${ICONS.sparkle}
+      </span>
+      <div style="min-width:0;flex:1;">
+        <strong style="font-size:13.5px;display:block;">المساعد المالي الذكي</strong>
+        <span class="text-muted">تحليل المتأخرات، كبار العملاء، وملخص السيولة الفوري</span>
+      </div>
+      <span class="chip active">اسأل الآن</span>
+    </div>
 
     ${overdueInstCount > 0 || m.overdueCount > 0 ? `
       <div class="alert-banner card-clickable" data-action="go-tab" data-val="notifications">
@@ -555,6 +596,7 @@ function renderContactsTab() {
 function renderMoreHub() {
   const unread = state.notifications.filter((n) => !n.isRead).length;
   const items = [
+    { tab: "ai", title: "المساعد الذكي", sub: "تحليلات وإجابات فورية", color: "var(--accent)", icon: ICONS.sparkle },
     { tab: "notifications", title: `الإشعارات (${unread})`, sub: "تنبيهات الأقساط والديون", color: "var(--warning)", icon: ICONS.bell },
     { tab: "reminders", title: "التذكيرات المحلية", sub: "جدولة وإعداد الإشعارات", color: "var(--negative)", icon: ICONS.clock },
     { action: "open-print-settings", title: "الطباعة والفواتير PDF", sub: "قوالب والشعار والألوان", color: "var(--accent)", icon: ICONS.print },
@@ -827,6 +869,75 @@ function renderSearchPage() {
     <div class="list-stack">
       ${matchedDebts.length ? matchedDebts.map(renderDebtCard).join("") : `<div class="card text-muted">لا توجد نتائج مطابقة</div>`}
     </div>
+  `;
+}
+
+function renderAiAssistantPage() {
+  const active = Boolean(state.preferences.aiConsentGranted);
+  return `
+    <div class="row-between">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="btn btn-outline btn-sm" data-action="switch-tab" data-val="dashboard">رجوع</button>
+        <div>
+          <strong>المساعد المالي الذكي</strong>
+          <div style="font-size:11px;color:${active ? "var(--positive)" : "var(--warning)"};font-weight:700;">
+            ${active ? "مفعّل وجاهز • تحليل مباشر لبياناتك (يعمل أوفلاين)" : "بانتظار التفعيل"}
+          </div>
+        </div>
+      </div>
+      ${state.aiMessages.length
+        ? `<button class="btn btn-outline btn-sm" data-action="clear-ai-chat">محادثة جديدة</button>`
+        : ""}
+    </div>
+
+    <div class="card">
+      <div class="switch-row" style="padding:0;">
+        <div>
+          <strong>تفعيل التحليل المالي الذكي</strong>
+          <div class="text-muted">تحليل أرصدتك، الأقساط، كبار العملاء، والمتأخرات فوراً من بياناتك الفعلية.</div>
+        </div>
+        <button class="chip ${active ? "active" : ""}" data-action="toggle-ai-consent">
+          ${active ? "مفعّل ✓" : "غير مفعّل"}
+        </button>
+      </div>
+      ${!active ? `
+        <button class="btn btn-positive" style="width:100%;margin-top:10px;" data-action="activate-ai-now">
+          ${ICONS.sparkle}
+          <span>${state.aiPendingQuestion ? "موافق — تفعيل وإرسال سؤالك الآن" : "تفعيل المساعد الذكي الآن"}</span>
+        </button>
+      ` : ""}
+    </div>
+
+    ${state.aiPendingQuestion && !active ? `
+      <div class="alert-banner">
+        <span>السؤال الجاهز: «${escapeHtml(state.aiPendingQuestion)}» — اضغط التفعيل أعلاه لعرض الإجابة.</span>
+      </div>
+    ` : ""}
+
+    <div class="tabs-row" style="margin-top:2px;">
+      ${AI_QUICK_PROMPTS.map((q) => `
+        <button type="button" class="chip" data-action="ask-ai-prompt" data-val="${escapeHtml(q)}">✨ ${escapeHtml(q)}</button>
+      `).join("")}
+    </div>
+
+    <div class="ai-chat-stack">
+      ${state.aiMessages.length ? state.aiMessages.map((m) => `
+        <div class="ai-msg ${m.isUser ? "ai-msg-user" : "ai-msg-bot"}">${escapeHtml(m.text)}</div>
+      `).join("") : `
+        <div class="card" style="text-align:center;padding:24px;">
+          <div style="color:var(--accent);display:inline-flex;margin-bottom:6px;">${ICONS.sparkle}</div>
+          <strong style="display:block;">اسأل عن وضعك المالي</strong>
+          <p class="text-muted" style="margin-top:4px;">اختر سؤالاً سريعاً أعلاه أو اكتب سؤالك عن الديون والتحصيل والأقساط أو اسم أي عميل.</p>
+        </div>
+      `}
+    </div>
+
+    <form class="ai-input-row" data-form="ask-ai-form">
+      <input class="input" name="question" placeholder="اكتب سؤالك المالي هنا (مثال: كم حساب أحمد؟)..." required />
+      <button type="submit" class="btn btn-positive" style="min-height:42px;padding:0 14px;" title="إرسال">
+        ${ICONS.send}
+      </button>
+    </form>
   `;
 }
 
@@ -1117,6 +1228,7 @@ function render() {
     state.tab === "dashboard" ? renderDashboard() :
     state.tab === "debts" ? renderDebtsTab() :
     state.tab === "contacts" ? renderContactsTab() :
+    state.tab === "ai" ? renderAiAssistantPage() :
     state.tab === "notifications" ? renderNotificationsPage() :
     state.tab === "reminders" ? renderRemindersPage() :
     state.tab === "whatsapp" ? renderWhatsAppSettingsPage() :
@@ -1272,6 +1384,34 @@ document.addEventListener("click", async (e) => {
     Object.assign(state, await loadAllLocalState());
     render();
     showToast("تم حذف التذكير");
+  } else if (action === "toggle-ai-consent") {
+    const next = !state.preferences.aiConsentGranted;
+    state.preferences = { ...state.preferences, aiConsentGranted: next };
+    await savePreferencesLocal(state.preferences);
+    if (next && state.aiPendingQuestion) {
+      const q = state.aiPendingQuestion;
+      state.aiPendingQuestion = "";
+      runAiPrompt(q);
+    } else {
+      render();
+    }
+  } else if (action === "activate-ai-now") {
+    state.preferences = { ...state.preferences, aiConsentGranted: true };
+    await savePreferencesLocal(state.preferences);
+    if (state.aiPendingQuestion) {
+      const q = state.aiPendingQuestion;
+      state.aiPendingQuestion = "";
+      runAiPrompt(q);
+    } else {
+      render();
+      showToast("تم تفعيل المساعد المالي الذكي ✓");
+    }
+  } else if (action === "ask-ai-prompt") {
+    handleAiSubmission(val);
+  } else if (action === "clear-ai-chat") {
+    state.aiMessages = [];
+    state.aiPendingQuestion = "";
+    render();
   } else if (action === "share-voucher-wa") {
     const d = state.modal?.data;
     if (d) openWhatsAppShare(d.partyPhone || "", d.whatsappMessage || "");
@@ -1467,6 +1607,15 @@ document.addEventListener("submit", async (e) => {
     await savePreferencesLocal(state.preferences);
     render();
     showToast("تم حفظ تنسيق رسائل واتساب");
+    return;
+  }
+
+  if (kind === "ask-ai-form") {
+    const q = String(fd.get("question") || "").trim();
+    if (q) {
+      form.reset();
+      handleAiSubmission(q);
+    }
     return;
   }
 

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.TableChart
@@ -467,10 +468,12 @@ fun AiAssistantScreen(
     isBusy: Boolean,
     onBack: () -> Unit,
     onToggleConsent: (Boolean) -> Unit,
-    onAskQuestion: (String) -> Unit
+    onAskQuestion: (question: String, grantConsentAndSend: Boolean) -> Unit,
+    onClearChat: () -> Unit = {}
 ) {
     val hc = HisabatiTheme.colors
     var input by remember { mutableStateOf("") }
+    var pendingQuestion by remember { mutableStateOf<String?>(null) }
     val quickPrompts = listOf(
         "ما إجمالي المستحق لي؟",
         "ما إجمالي المستحق عليّ؟",
@@ -481,13 +484,46 @@ fun AiAssistantScreen(
         "اعطني ملخصاً عن هذا الشهر"
     )
 
+    fun submitQuestion(q: String) {
+        val clean = q.trim()
+        if (clean.isEmpty() || isBusy) return
+        if (!state.preferences.aiConsentGranted) {
+            pendingQuestion = clean
+        } else {
+            pendingQuestion = null
+            onAskQuestion(clean, false)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("المساعد المالي الذكي") },
+                title = {
+                    Column {
+                        Text("المساعد المالي الذكي", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (state.preferences.aiConsentGranted) "Gemini AI • مفعّل وجاهز" else "بانتظار التفعيل",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (state.preferences.aiConsentGranted) hc.positive else hc.warning
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع")
+                    }
+                },
+                actions = {
+                    if (messages.isNotEmpty() && !isBusy) {
+                        IconButton(
+                            onClick = {
+                                pendingQuestion = null
+                                onClearChat()
+                            },
+                            modifier = Modifier.testTag("ai_clear_button")
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "محادثة جديدة")
+                        }
                     }
                 }
             )
@@ -506,17 +542,65 @@ fun AiAssistantScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("موافقة الخصوصية للتحليل الذكي", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("تفعيل المساعد المالي الذكي (Gemini AI)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "إرسال ملخص رقمي لأرصدتك إلى خدمة الذكاء الاصطناعي للإجابة عن أسئلتك بالعربية بدقة.",
+                            "تحليل فوري لأرصدتك وأقساطك ومتأخراتك بالاعتماد على بيانات حسابك الفعلية.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Switch(
                         checked = state.preferences.aiConsentGranted,
-                        onCheckedChange = onToggleConsent,
+                        onCheckedChange = { enabled ->
+                            onToggleConsent(enabled)
+                            if (enabled && !pendingQuestion.isNullOrBlank()) {
+                                val queued = pendingQuestion!!
+                                pendingQuestion = null
+                                onAskQuestion(queued, true)
+                            }
+                        },
                         modifier = Modifier.testTag("ai_consent_switch")
+                    )
+                }
+                if (!state.preferences.aiConsentGranted) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            val queued = pendingQuestion
+                            pendingQuestion = null
+                            if (!queued.isNullOrBlank()) {
+                                onAskQuestion(queued, true)
+                            } else {
+                                onToggleConsent(true)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_activate_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = hc.positive)
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (pendingQuestion != null) "موافق — تفعيل وإرسال سؤالك الآن" else "تفعيل المساعد الذكي الآن",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            if (pendingQuestion != null && !state.preferences.aiConsentGranted) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = hc.warning.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "السؤال الجاهز للإرسال: «$pendingQuestion» — اضغط الزر الأخضر أعلاه للتفعيل والإجابة فوراً.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(12.dp)
                     )
                 }
             }
@@ -529,7 +613,7 @@ fun AiAssistantScreen(
                 quickPrompts.forEach { prompt ->
                     FilterChip(
                         selected = false,
-                        onClick = { onAskQuestion(prompt) },
+                        onClick = { submitQuestion(prompt) },
                         label = { Text(prompt) },
                         leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = hc.accent, modifier = Modifier.size(16.dp)) }
                     )
@@ -614,7 +698,7 @@ fun AiAssistantScreen(
                     onClick = {
                         val q = input
                         input = ""
-                        onAskQuestion(q)
+                        submitQuestion(q)
                     },
                     enabled = !isBusy && input.isNotBlank(),
                     modifier = Modifier

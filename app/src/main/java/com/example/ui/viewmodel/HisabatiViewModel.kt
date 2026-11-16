@@ -18,6 +18,7 @@ import com.example.data.local.SyncOutboxEntity
 import com.example.data.local.UserAppPreferences
 import com.example.data.local.WorkspaceMemberEntity
 import com.example.data.repository.AiFinancialRepository
+import com.example.data.repository.AiHistoryTurn
 import com.example.data.repository.AiStreamEvent
 import com.example.data.repository.HisabatiRepository
 import com.example.data.repository.RepositoryActionResult
@@ -797,22 +798,37 @@ class HisabatiViewModel(
         }
     }
 
-    fun askAiAssistant(question: String) {
+    fun clearAiChat() {
+        if (_aiBusy.value) return
+        _aiStreamingText.value = null
+        _aiMessages.value = emptyList()
+    }
+
+    fun askAiAssistant(question: String, grantConsentAndSend: Boolean = false) {
         val state = uiState.value
-        if (!state.preferences.aiConsentGranted) {
-            emitFeedback("يرجى الموافقة على إرسال ملخص البيانات للمساعد الذكي أولاً", isError = true)
-            return
-        }
         val cleanQ = question.trim()
         if (cleanQ.isEmpty() || _aiBusy.value) return
+
+        if (!state.preferences.aiConsentGranted && !grantConsentAndSend) {
+            emitFeedback("يرجى تفعيل موافقة المساعد الذكي أولاً", isError = true)
+            return
+        }
+
+        val priorHistory = _aiMessages.value
+            .filter { !it.isError && it.text.isNotBlank() }
+            .takeLast(8)
+            .map { AiHistoryTurn(isUser = it.isUser, text = it.text) }
 
         val userMsg = AiChatMessage("u_${System.currentTimeMillis()}", true, cleanQ)
         _aiMessages.value = _aiMessages.value + userMsg
 
         val contextSummary = buildAiAccountContext(state)
         viewModelScope.launch {
+            if (grantConsentAndSend && !state.preferences.aiConsentGranted) {
+                preferencesStore.setAiConsentGranted(true)
+            }
             _aiBusy.value = true
-            aiRepository.streamFinancialAnswer(cleanQ, contextSummary).collect { event ->
+            aiRepository.streamFinancialAnswer(cleanQ, contextSummary, priorHistory).collect { event ->
                 when (event) {
                     is AiStreamEvent.Loading -> _aiStreamingText.value = ""
                     is AiStreamEvent.Streaming -> _aiStreamingText.value = event.partialText
@@ -838,9 +854,24 @@ class HisabatiViewModel(
     private fun buildAiAccountContext(state: HisabatiUiState): String {
         val m = state.metrics
         val sym = m.defaultCurrencySymbol
+        val defaultCode = m.defaultCurrencyCode
         val now = System.currentTimeMillis()
         val weekAhead = now + 7L * 86_400_000L
+        val monthStart = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
         val df = SimpleDateFormat("yyyy/MM/dd", Locale.US)
+
+        val rateMap = state.currencies.associate { it.code to it.rateToUsdMicros }
+        val targetRate = rateMap[defaultCode] ?: 1_887L
+        fun toDefault(minor: Long, curCode: String): Long {
+            val srcRate = rateMap[curCode] ?: targetRate
+            return MoneyMath.convertMinor(minor, srcRate, targetRate)
+        }
 
         val overdueDebts = state.debts.filter {
             it.remainingMinor > 0L && it.dueAtMillis < now &&
@@ -850,33 +881,60 @@ class HisabatiViewModel(
         }
 
         val weekInstallments = state.installments.filter {
-            it.dueAtMillis in now..weekAhead && it.paidMinor < it.amountMinor
-        }.take(10).joinToString("\n") { ins ->
+            it.dueAtMillis <= weekAhead && it.paidMinor < it.amountMinor
+        }.take(12).joinToString("\n") { ins ->
             val debt = state.debts.find { it.id == ins.debtId }
-            "- ${debt?.contactName ?: "عميل"}: قسط #${ins.installmentNumber} بمبلغ ${MoneyMath.formatMinor(ins.amountMinor - ins.paidMinor, currencyCode = debt?.currencyCode ?: "")} بتاريخ ${df.format(Date(ins.dueAtMillis))}"
+            val stateLabel = if (ins.dueAtMillis < now) "متأخر" else "قادم"
+            "- ${debt?.contactName ?: "عميل"}: قسط #${ins.installmentNumber} ($stateLabel) بمبلغ ${MoneyMath.formatMinor(ins.amountMinor - ins.paidMinor, currencyCode = debt?.currencyCode ?: defaultCode)} بتاريخ ${df.format(Date(ins.dueAtMillis))}"
         }
 
         val topDebtors = state.debts
-            .filter { it.direction == DebtDirection.RECEIVABLE.name && it.remainingMinor > 0L }
+            .filter { it.direction == DebtDirection.RECEIVABLE.name && it.remainingMinor > 0L && it.status != DebtStatus.PAID.name && it.status != DebtStatus.SETTLED.name }
             .groupBy { it.contactName }
-            .mapValues { (_, list) -> list.sumOf { it.remainingMinor } }
-            .entries.sortedByDescending { it.value }.take(5)
+            .mapValues { (_, list) -> list.sumOf { toDefault(it.remainingMinor, it.currencyCode) } }
+            .entries.sortedByDescending { it.value }.take(8)
             .joinToString("\n") { "- ${it.key}: ${MoneyMath.formatMinor(it.value, sym)}" }
 
+        val topCreditors = state.debts
+            .filter { it.direction == DebtDirection.PAYABLE.name && it.remainingMinor > 0L && it.status != DebtStatus.PAID.name && it.status != DebtStatus.SETTLED.name }
+            .groupBy { it.contactName }
+            .mapValues { (_, list) -> list.sumOf { toDefault(it.remainingMinor, it.currencyCode) } }
+            .entries.sortedByDescending { it.value }.take(8)
+            .joinToString("\n") { "- ${it.key}: ${MoneyMath.formatMinor(it.value, sym)}" }
+
+        val debtById = state.debts.associateBy { it.id }
+        val thisMonthCollected = state.payments
+            .filter { it.paidAtMillis >= monthStart && debtById[it.debtId]?.direction == DebtDirection.RECEIVABLE.name }
+            .sumOf { toDefault(it.amountMinor, it.currencyCode) }
+        val thisMonthPaidOut = state.payments
+            .filter { it.paidAtMillis >= monthStart && debtById[it.debtId]?.direction == DebtDirection.PAYABLE.name }
+            .sumOf { toDefault(it.amountMinor, it.currencyCode) }
+
+        val recentPayments = state.payments.take(6).joinToString("\n") { p ->
+            val d = debtById[p.debtId]
+            "- ${d?.contactName ?: "عميل"}: دفعة ${MoneyMath.formatMinor(p.amountMinor, currencyCode = p.currencyCode)} بتاريخ ${df.format(Date(p.paidAtMillis))} (إيصال ${p.receiptNumber})"
+        }
+
         return """
-            العملة الافتراضية للعرض: ${m.defaultCurrencyCode} ($sym)
+            تاريخ اليوم: ${df.format(Date(now))}
+            مساحة العمل: ${state.preferences.workspaceName} (${state.preferences.accountType.labelAr})
+            العملة الافتراضية للعرض: $defaultCode ($sym)
             إجمالي المستحق لي: ${MoneyMath.formatMinor(m.totalReceivableMinor, sym)}
             إجمالي المستحق عليّ: ${MoneyMath.formatMinor(m.totalPayableMinor, sym)}
             صافي المركز المالي: ${MoneyMath.formatSignedMinor(m.netPositionMinor, sym)}
-            إجمالي المبالغ المحصلة: ${MoneyMath.formatMinor(m.totalCollectedMinor, sym)}
-            إجمالي المبالغ المسددة للغير: ${MoneyMath.formatMinor(m.totalPaidOutMinor, sym)}
-            عدد الأشخاص: ${m.contactsCount} | عدد المعاملات: ${m.transactionsCount}
+            إجمالي المبالغ المحصلة (التاريخي): ${MoneyMath.formatMinor(m.totalCollectedMinor, sym)} | المحصل هذا الشهر: ${MoneyMath.formatMinor(thisMonthCollected, sym)}
+            إجمالي المبالغ المسددة (التاريخي): ${MoneyMath.formatMinor(m.totalPaidOutMinor, sym)} | المسدد هذا الشهر: ${MoneyMath.formatMinor(thisMonthPaidOut, sym)}
+            عدد الأشخاص: ${m.contactsCount} | عدد المعاملات: ${m.transactionsCount} | قيد السداد خلال 7 أيام: ${m.dueSoonCount} (${MoneyMath.formatMinor(m.dueSoonAmountMinor, sym)})
             الديون المتأخرة (${m.overdueCount}):
             ${overdueDebts.ifBlank { "لا توجد ديون متأخرة حالياً" }}
-            أكثر الأشخاص مديونية لك:
+            أكثر الأشخاص مديونية لك (مستحق لك منهم):
             ${topDebtors.ifBlank { "لا توجد مستحقات مفتوحة" }}
-            أقساط الأسبوع القادم:
+            أكثر الجهات التي تطالبك (مستحق عليك لهم):
+            ${topCreditors.ifBlank { "لا توجد التزامات مفتوحة" }}
+            الأقساط المتأخرة أو المستحقة خلال 7 أيام:
             ${weekInstallments.ifBlank { "لا توجد أقساط مستحقة هذا الأسبوع" }}
+            أحدث الدفعات المسجلة:
+            ${recentPayments.ifBlank { "لا توجد دفعات حديثة" }}
         """.trimIndent()
     }
 }

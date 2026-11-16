@@ -17,6 +17,7 @@ import {
   renderMonthlyCashflowChartHtml,
   renderReceivablePayableDonutHtml
 } from "../public/js/charts.js";
+import { AI_QUICK_PROMPTS, answerFinancialQuestionLocally } from "../public/js/ai.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
@@ -46,9 +47,11 @@ test("PWA manifest, icons, Apple meta tags, notificationclick SW, and silent reg
   assert.ok(swJs.includes("notificationclick"));
   assert.ok(swJs.includes("./js/notifications.js"));
   assert.ok(swJs.includes("./js/charts.js"));
+  assert.ok(swJs.includes("./js/ai.js"));
 
   const appJs = fs.readFileSync(path.join(publicDir, "js/app.js"), "utf8");
   assert.ok(appJs.includes('navigator.serviceWorker.register("./sw.js"'));
+  assert.ok(appJs.includes("renderAiAssistantPage"));
 
   const readme = fs.readFileSync(path.join(rootDir, "README.md"), "utf8");
   assert.ok(readme.includes("تحميل واستخدام التطبيق على الآيفون (بدون إنترنت)"));
@@ -170,4 +173,61 @@ test("Installment scheduling, payment allocation, local notification evaluation,
   assert.ok(cashflowHtml.includes("<svg"));
   const donutHtml = renderReceivablePayableDonutHtml(60_000, 20_000, "YER");
   assert.ok(donutHtml.includes("75%"));
+});
+
+test("Web/iPhone PWA Smart Financial AI answers receivables, overdue debts, installments, and specific contact lookups offline", () => {
+  const now = 1_760_000_000_000;
+  const DAY = 86_400_000;
+  const state = {
+    preferences: { defaultCurrency: "YER", aiConsentGranted: true },
+    contacts: [{ id: "c1", fullName: "أحمد السقاف", phone: "771122334" }],
+    debts: [
+      {
+        id: "d1",
+        contactId: "c1",
+        contactName: "أحمد السقاف",
+        direction: "RECEIVABLE",
+        principalMinor: 150_000,
+        remainingMinor: 100_000,
+        currencyCode: "YER",
+        recordedAtMillis: now - 15 * DAY,
+        dueAtMillis: now - 3 * DAY,
+        status: "PARTIAL"
+      },
+      {
+        id: "d2",
+        contactId: "c2",
+        contactName: "مؤسسة البناء",
+        direction: "PAYABLE",
+        principalMinor: 40_000,
+        remainingMinor: 40_000,
+        currencyCode: "YER",
+        recordedAtMillis: now - 5 * DAY,
+        dueAtMillis: now + 10 * DAY,
+        status: "OPEN"
+      }
+    ],
+    payments: [{ id: "p1", debtId: "d1", amountMinor: 50_000, currencyCode: "YER", paidAtMillis: now - DAY }],
+    installments: [
+      { id: "i1", debtId: "d1", installmentNumber: 2, amountMinor: 50_000, paidMinor: 0, dueAtMillis: now + 2 * DAY, status: "PENDING" }
+    ]
+  };
+
+  assert.equal(AI_QUICK_PROMPTS.length, 7);
+  const recAnswer = answerFinancialQuestionLocally({ question: "ما إجمالي المستحق لي؟", state, nowMillis: now });
+  assert.ok(recAnswer.includes("1,000 ر.ي"));
+  assert.ok(recAnswer.includes("أحمد السقاف"));
+
+  const overdueAnswer = answerFinancialQuestionLocally({ question: "ما الديون المتأخرة؟", state, nowMillis: now });
+  assert.ok(overdueAnswer.includes("أحمد السقاف"));
+
+  const instAnswer = answerFinancialQuestionLocally({ question: "ما الأقساط المستحقة هذا الأسبوع؟", state, nowMillis: now });
+  assert.ok(instAnswer.includes("#2"));
+
+  const contactAnswer = answerFinancialQuestionLocally({ question: "كم حساب أحمد السقاف؟", state, nowMillis: now });
+  assert.ok(contactAnswer.includes("أحمد السقاف"));
+  assert.ok(contactAnswer.includes("1,000 ر.ي"));
+
+  const summaryAnswer = answerFinancialQuestionLocally({ question: "اعطني ملخصاً عن هذا الشهر", state, nowMillis: now });
+  assert.ok(summaryAnswer.includes("صافي المركز المالي"));
 });

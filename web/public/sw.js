@@ -1,10 +1,11 @@
-const CACHE_VERSION = "hisabati-pwa-v1.1.0";
+const CACHE_VERSION = "hisabati-pwa-v1.2.0";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./css/app.css",
   "./js/app.js",
+  "./js/ai.js",
   "./js/money.js",
   "./js/storage.js",
   "./js/notifications.js",

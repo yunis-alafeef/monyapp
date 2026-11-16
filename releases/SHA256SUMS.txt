@@ -1,1 +1,1 @@
-d2cec47fd56893190a7b8cbb429e9f22ddfff224917b10e3078684772ea71a48  releases/hisabati-v1.0-android.apk
+1cdd010201a6d762c86e1e9318cd19bd6a94feed7656a0ba2ad2a165c1ab9aae  releases/hisabati-v1.0-android.apk

@@ -606,7 +606,8 @@ fun HisabatiAppShell(
                                 isBusy = aiBusy,
                                 onBack = { navController.popBackStack() },
                                 onToggleConsent = { granted -> viewModel.setAiConsent(granted) },
-                                onAskQuestion = { q -> viewModel.askAiAssistant(q) }
+                                onAskQuestion = { q, grant -> viewModel.askAiAssistant(q, grantConsentAndSend = grant) },
+                                onClearChat = { viewModel.clearAiChat() }
                             )
                         }
 
