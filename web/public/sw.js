@@ -1,4 +1,4 @@
-const CACHE_VERSION = "hisabati-pwa-v1.0.0";
+const CACHE_VERSION = "hisabati-pwa-v1.1.0";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const SHELL_ASSETS = [
   "./js/app.js",
   "./js/money.js",
   "./js/storage.js",
+  "./js/notifications.js",
+  "./js/charts.js",
   "./js/whatsapp.js",
   "./js/print.js",
   "./js/cloud.js",
@@ -59,6 +61,24 @@ self.addEventListener("fetch", (event) => {
 
   // Static images/icons use Stale-While-Revalidate for instant rendering offline.
   event.respondWith(staleWhileRevalidate(request));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.postMessage({ type: "HISABATI_OPEN_NOTIFICATIONS", data: event.notification.data || {} });
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow("./index.html");
+      }
+      return undefined;
+    })
+  );
 });
 
 async function networkFirst(request) {

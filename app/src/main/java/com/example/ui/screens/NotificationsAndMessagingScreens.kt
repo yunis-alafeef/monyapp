@@ -94,7 +94,8 @@ fun NotificationsScreen(
     onBack: () -> Unit,
     onMarkAllRead: () -> Unit,
     onOpenDebt: (String) -> Unit,
-    onOpenReminderSettings: () -> Unit
+    onOpenReminderSettings: () -> Unit,
+    onCheckDueNow: () -> Unit = {}
 ) {
     val hc = HisabatiTheme.colors
     Scaffold(
@@ -107,6 +108,12 @@ fun NotificationsScreen(
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = onCheckDueNow,
+                        modifier = Modifier.testTag("check_due_notifications_button")
+                    ) {
+                        Text("فحص الآن")
+                    }
                     IconButton(
                         onClick = onMarkAllRead,
                         modifier = Modifier.testTag("mark_all_notifications_read")
@@ -202,7 +209,9 @@ fun ReminderSettingsScreen(
     onBack: () -> Unit,
     onSaveNotificationSettings: (Boolean, Int, Int, Boolean) -> Unit,
     onCreateReminder: (ReminderEntity) -> Unit,
-    onDeleteReminder: (String) -> Unit
+    onDeleteReminder: (String) -> Unit,
+    onCheckDueNow: () -> Unit = {},
+    onSendTestNotification: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hc = HisabatiTheme.colors
@@ -227,7 +236,8 @@ fun ReminderSettingsScreen(
     ) { granted ->
         hasNotificationPermission = granted
         if (granted) {
-            NotificationHelper.schedulePeriodicWorkers(context)
+            NotificationHelper.schedulePeriodicWorkers(context, hour, minute)
+            onCheckDueNow()
         }
     }
 
@@ -286,7 +296,7 @@ fun ReminderSettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("تفعيل التذكيرات التلقائية", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text("فحص الديون القريبة والمتأخرة في الخلفية عبر WorkManager", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("فحص مواعيد سداد الأقساط وتحصيل الديون المستحقة والمتأخرة في الخلفية", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = enabled, onCheckedChange = { enabled = it })
                     }
@@ -323,7 +333,10 @@ fun ReminderSettingsScreen(
                     Button(
                         onClick = {
                             onSaveNotificationSettings(enabled, hour, minute, highPriority)
-                            if (enabled) NotificationHelper.schedulePeriodicWorkers(context)
+                            if (enabled) {
+                                NotificationHelper.schedulePeriodicWorkers(context, hour, minute)
+                                onCheckDueNow()
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -332,6 +345,28 @@ fun ReminderSettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Text("حفظ إعدادات التذكير", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onCheckDueNow,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("check_local_notifications_now_button")
+                        ) {
+                            Text("فحص المستحقات الآن", maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = onSendTestNotification,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("send_test_local_notification_button")
+                        ) {
+                            Text("إشعار تجريبي", maxLines = 1)
+                        }
                     }
                 }
             }

@@ -10,6 +10,21 @@ export function getCurrencySymbol(code) {
   return DEFAULT_CURRENCIES.find((c) => c.code === code)?.symbol || code || "ر.ي";
 }
 
+export function getCurrencyRateMicros(code, customCurrencies = []) {
+  const foundCustom = (customCurrencies || []).find((c) => c.code === code);
+  if (foundCustom?.rateToUsdMicros) return foundCustom.rateToUsdMicros;
+  return DEFAULT_CURRENCIES.find((c) => c.code === code)?.rateToUsdMicros || 1887;
+}
+
+export function convertMinor(minor, fromCode, toCode, customCurrencies = []) {
+  const safeMinor = Math.trunc(Number(minor) || 0);
+  if (!safeMinor || fromCode === toCode) return safeMinor;
+  const fromRate = getCurrencyRateMicros(fromCode, customCurrencies);
+  const toRate = getCurrencyRateMicros(toCode, customCurrencies);
+  if (!fromRate || !toRate) return safeMinor;
+  return Math.round((safeMinor * fromRate) / toRate);
+}
+
 export function parseMajorToMinor(rawInput) {
   if (rawInput == null) return null;
   const normalized = normalizeDigits(String(rawInput)).replace(/[,،\s]/g, "").trim();

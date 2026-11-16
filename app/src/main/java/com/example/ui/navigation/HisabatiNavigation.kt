@@ -1,6 +1,10 @@
 package com.example.ui.navigation
 
+import android.Manifest
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,12 +46,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +69,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.domain.model.DebtDirection
+import com.example.notifications.NotificationHelper
 import com.example.ui.components.AnmaSoftFooterBar
 import com.example.ui.screens.AddDebtScreen
 import com.example.ui.screens.AddEditContactScreen
@@ -150,8 +159,47 @@ fun HisabatiAppShell(
     val aiStreaming by viewModel.aiStreamingText.collectAsStateWithLifecycle()
     val aiBusy by viewModel.aiBusy.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
+    var promptedNotificationPerm by rememberSaveable { mutableStateOf(false) }
+
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            NotificationHelper.schedulePeriodicWorkers(
+                context = context,
+                preferredHour = state.preferences.defaultReminderHour,
+                preferredMinute = state.preferences.defaultReminderMinute
+            )
+            viewModel.checkLocalNotifications(context, notifyEmpty = false)
+        }
+    }
+
+    LaunchedEffect(viewModel.currentUserId, state.preferences.notificationsEnabled) {
+        if (state.preferences.notificationsEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !NotificationHelper.hasNotificationPermission(context) &&
+                !promptedNotificationPerm
+            ) {
+                promptedNotificationPerm = true
+                notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                NotificationHelper.schedulePeriodicWorkers(
+                    context = context,
+                    preferredHour = state.preferences.defaultReminderHour,
+                    preferredMinute = state.preferences.defaultReminderMinute
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(viewModel.currentUserId, state.debts.size, state.installments.size) {
+        if (!state.isLoading && state.preferences.notificationsEnabled) {
+            viewModel.checkLocalNotifications(context, notifyEmpty = false)
+        }
+    }
 
     LaunchedEffect(state.feedbackMessage) {
         val msg = state.feedbackMessage
@@ -475,7 +523,8 @@ fun HisabatiAppShell(
                                 onBack = { navController.popBackStack() },
                                 onMarkAllRead = { viewModel.markAllNotificationsRead() },
                                 onOpenDebt = { did -> navController.navigate(HisabatiRoutes.debtDetail(did)) },
-                                onOpenReminderSettings = { navController.navigate(HisabatiRoutes.REMINDER_SETTINGS) }
+                                onOpenReminderSettings = { navController.navigate(HisabatiRoutes.REMINDER_SETTINGS) },
+                                onCheckDueNow = { viewModel.checkLocalNotifications(context, notifyEmpty = true) }
                             )
                         }
 
@@ -488,8 +537,11 @@ fun HisabatiAppShell(
                                 },
                                 onCreateReminder = { rem ->
                                     viewModel.saveReminder(rem.copy(userId = viewModel.currentUserId))
+                                    NotificationHelper.scheduleOneShotReminder(context, rem.triggerAtMillis)
                                 },
-                                onDeleteReminder = { id -> viewModel.deleteReminder(id) }
+                                onDeleteReminder = { id -> viewModel.deleteReminder(id) },
+                                onCheckDueNow = { viewModel.checkLocalNotifications(context, notifyEmpty = true) },
+                                onSendTestNotification = { viewModel.sendTestLocalNotification(context) }
                             )
                         }
 

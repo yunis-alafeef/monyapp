@@ -1,11 +1,13 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AuditLogEntity
 import com.example.data.local.ContactEntity
 import com.example.data.local.CurrencyEntity
 import com.example.data.local.DebtEntity
+import com.example.data.local.HisabatiDatabase
 import com.example.data.local.InstallmentEntity
 import com.example.data.local.MessageTemplateEntity
 import com.example.data.local.NotificationLogEntity
@@ -29,6 +31,7 @@ import com.example.domain.model.SyncStatus
 import com.example.domain.model.WorkspaceRole
 import com.example.export.PdfDocumentKind
 import com.example.export.PdfInvoiceTemplate
+import com.example.notifications.NotificationHelper
 import com.example.ui.theme.AppThemeMode
 import com.example.ui.theme.AppThemePalette
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -492,6 +495,44 @@ class HisabatiViewModel(
         viewModelScope.launch {
             repository.markAllNotificationsRead(currentUserId)
         }
+    }
+
+    fun checkLocalNotifications(context: Context, notifyEmpty: Boolean = false) {
+        viewModelScope.launch {
+            val appCtx = context.applicationContext
+            val db = HisabatiDatabase.getInstance(appCtx)
+            val created = NotificationHelper.evaluateDueNotificationsForUser(
+                context = appCtx,
+                db = db,
+                uid = currentUserId,
+                prefs = uiState.value.preferences,
+                nowMillis = System.currentTimeMillis(),
+                postSystemNotifications = true
+            )
+            if (notifyEmpty) {
+                if (created > 0) {
+                    emitFeedback("تم فحص المستحقات وإصدار $created تنبيه محلي")
+                } else {
+                    emitFeedback("تم الفحص: لا توجد أقساط أو ديون جديدة مستحقة حالياً")
+                }
+            }
+        }
+    }
+
+    fun sendTestLocalNotification(context: Context) {
+        val appCtx = context.applicationContext
+        if (!NotificationHelper.hasNotificationPermission(appCtx)) {
+            emitFeedback("يرجى منح إذن الإشعارات أولاً لإظهار تنبيهات الجهاز", isError = true)
+            return
+        }
+        NotificationHelper.showReminderNotification(
+            context = appCtx,
+            notificationId = 9901,
+            title = "اختبار التذكير — حساباتي",
+            body = "نظام التنبيهات المحلية يعمل بنجاح لتذكيرك بمواعيد الأقساط وتحصيل الديون المستحقة.",
+            highPriority = uiState.value.preferences.reminderPriorityHigh
+        )
+        emitFeedback("تم إرسال إشعار تجريبي إلى شريط إشعارات الجهاز ✓")
     }
 
     fun saveTemplate(template: MessageTemplateEntity) {

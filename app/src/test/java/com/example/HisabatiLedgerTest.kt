@@ -507,4 +507,94 @@ class HisabatiLedgerTest {
             assertEquals(0xFF115E59L, unified.printReportColorHex)
         }
     }
+
+    @Test
+    fun localNotifications_evaluateOverdueDebtsInstallmentsRemindersAndDeduplication() = runBlocking(Dispatchers.IO) {
+        withTimeout(20_000L) {
+            val uid = "uid_ntf_test"
+            repo.initializeUserWorkspace(uid, "متجر السلام", "ntf@test.com")
+            val contact = (repo.saveContact(uid, null, "سعيد عمر", "771234567", null, null, null)
+                as RepositoryActionResult.Success).data
+
+            val now = System.currentTimeMillis()
+            // Overdue debt
+            val debtRes = repo.addDebt(
+                userId = uid,
+                contactId = contact.id,
+                direction = DebtDirection.RECEIVABLE,
+                principalMinor = 120_000L,
+                currencyCode = "YER",
+                recordedAtMillis = now - 10L * 86_400_000L,
+                dueAtMillis = now - 2L * 86_400_000L,
+                reason = "مواد بناء",
+                paymentMethod = "نقدي",
+                attachmentUri = null,
+                notes = null,
+                installmentCount = 3
+            )
+            assertTrue(debtRes is RepositoryActionResult.Success)
+            val debt = (debtRes as RepositoryActionResult.Success).data
+
+            // Custom reminder due now (daily repeat)
+            repo.saveReminder(
+                com.example.data.local.ReminderEntity(
+                    id = "rem_daily_test",
+                    userId = uid,
+                    debtId = debt.id,
+                    contactId = contact.id,
+                    title = "متابعة تحصيل الأقساط",
+                    message = "تذكير يومي بمتابعة العميل سعيد عمر",
+                    triggerAtMillis = now - 60_000L,
+                    repeatType = com.example.domain.model.RepeatType.DAILY.name,
+                    priority = com.example.domain.model.ReminderPriority.HIGH.name,
+                    isEnabled = true,
+                    isSent = false,
+                    createdAtMillis = now - 120_000L,
+                    updatedAtMillis = now - 120_000L
+                )
+            )
+
+            // Disabled preference produces 0
+            val disabledCount = com.example.notifications.NotificationHelper.evaluateDueNotificationsForUser(
+                context = context,
+                db = db,
+                uid = uid,
+                prefs = prefs.preferencesFlow.first().copy(notificationsEnabled = false),
+                nowMillis = now,
+                postSystemNotifications = false
+            )
+            assertEquals(0, disabledCount)
+
+            // Enabled preference produces logs for overdue debt + overdue installments + custom reminder
+            val created = com.example.notifications.NotificationHelper.evaluateDueNotificationsForUser(
+                context = context,
+                db = db,
+                uid = uid,
+                prefs = prefs.preferencesFlow.first().copy(notificationsEnabled = true),
+                nowMillis = now,
+                postSystemNotifications = false
+            )
+            assertTrue("Expected >= 3 notifications (debt, installments, custom reminder)", created >= 3)
+
+            val logs = db.notificationLogDao().getLogsOnce(uid)
+            assertTrue(logs.any { it.category == "OVERDUE" && it.relatedDebtId == debt.id })
+            assertTrue(logs.any { it.category.startsWith("INSTALLMENT_") && it.relatedDebtId == debt.id })
+            assertTrue(logs.any { it.category == "CUSTOM_REMINDER" })
+
+            // Repeating daily reminder must advance into the future instead of repeating same minute
+            val updatedReminder = db.reminderDao().getEnabledOnce(uid).first { it.id == "rem_daily_test" }
+            assertTrue(updatedReminder.triggerAtMillis > now)
+
+            // Same-day re-evaluation must deduplicate and emit 0 new notifications
+            val repeatCount = com.example.notifications.NotificationHelper.evaluateDueNotificationsForUser(
+                context = context,
+                db = db,
+                uid = uid,
+                prefs = prefs.preferencesFlow.first().copy(notificationsEnabled = true),
+                nowMillis = now + 60_000L,
+                postSystemNotifications = false
+            )
+            assertEquals(0, repeatCount)
+        }
+    }
 }

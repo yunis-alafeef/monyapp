@@ -152,6 +152,9 @@ interface NotificationLogDao {
     @Query("SELECT * FROM notification_logs WHERE userId = :userId ORDER BY createdAtMillis DESC")
     fun observeLogs(userId: String): Flow<List<NotificationLogEntity>>
 
+    @Query("SELECT * FROM notification_logs WHERE userId = :userId ORDER BY createdAtMillis DESC")
+    suspend fun getLogsOnce(userId: String): List<NotificationLogEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(log: NotificationLogEntity)
 

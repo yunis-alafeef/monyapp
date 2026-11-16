@@ -4,15 +4,25 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { formatMinor, parseMajorToMinor } from "../public/js/money.js";
+import { convertMinor, formatMinor, parseMajorToMinor } from "../public/js/money.js";
 import { buildFormattedWhatsAppMessage } from "../public/js/whatsapp.js";
 import { buildInvoiceHtml, PDF_TEMPLATES } from "../public/js/print.js";
+import {
+  allocatePaymentToInstallments,
+  buildInstallmentSchedule,
+  evaluateDueNotifications
+} from "../public/js/notifications.js";
+import {
+  buildMonthlySeries,
+  renderMonthlyCashflowChartHtml,
+  renderReceivablePayableDonutHtml
+} from "../public/js/charts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "../public");
 const rootDir = path.resolve(__dirname, "../..");
 
-test("PWA manifest, icons, Apple meta tags, and silent SW registration exist", () => {
+test("PWA manifest, icons, Apple meta tags, notificationclick SW, and silent registration exist", () => {
   const manifestRaw = fs.readFileSync(path.join(publicDir, "manifest.json"), "utf8");
   const manifest = JSON.parse(manifestRaw);
   assert.equal(manifest.short_name, "حساباتي");
@@ -33,6 +43,9 @@ test("PWA manifest, icons, Apple meta tags, and silent SW registration exist", (
   const swJs = fs.readFileSync(path.join(publicDir, "sw.js"), "utf8");
   assert.ok(swJs.includes("networkFirst"));
   assert.ok(swJs.includes("staleWhileRevalidate"));
+  assert.ok(swJs.includes("notificationclick"));
+  assert.ok(swJs.includes("./js/notifications.js"));
+  assert.ok(swJs.includes("./js/charts.js"));
 
   const appJs = fs.readFileSync(path.join(publicDir, "js/app.js"), "utf8");
   assert.ok(appJs.includes('navigator.serviceWorker.register("./sw.js"'));
@@ -42,10 +55,11 @@ test("PWA manifest, icons, Apple meta tags, and silent SW registration exist", (
   assert.ok(readme.includes("[ضع رابط الاستضافة هنا]"));
 });
 
-test("Yemeni Rial minor-unit math, WhatsApp formatter, and 4 invoice templates work", () => {
+test("Yemeni Rial minor-unit math, currency conversion, WhatsApp formatter, and 4 invoice templates work", () => {
   assert.equal(parseMajorToMinor("1,250.50"), 125050);
   assert.equal(parseMajorToMinor("١٠٠"), 10000);
   assert.equal(formatMinor(500000, "YER"), "5,000 ر.ي");
+  assert.ok(convertMinor(10000, "USD", "YER") > 10000);
 
   const msg = buildFormattedWhatsAppMessage(
     { workspaceName: "متجر اليمن", whatsappStyle: "FORMAL" },
@@ -74,4 +88,86 @@ test("Yemeni Rial minor-unit math, WhatsApp formatter, and 4 invoice templates w
     assert.ok(html.includes("مؤسسة الأمل"));
     assert.ok(html.includes("772317950"));
   }
+});
+
+test("Installment scheduling, payment allocation, local notification evaluation, and SVG charts work offline", () => {
+  const now = 1_760_000_000_000;
+  const DAY = 86_400_000;
+
+  const schedule = buildInstallmentSchedule({
+    debtId: "dbt_1",
+    userId: "u1",
+    principalMinor: 100_000,
+    installmentCount: 3,
+    recordedAtMillis: now - 10 * DAY,
+    dueAtMillis: now + 20 * DAY,
+    nowMillis: now
+  });
+  assert.equal(schedule.length, 3);
+  assert.equal(schedule.reduce((s, i) => s + i.amountMinor, 0), 100_000);
+
+  const modified = allocatePaymentToInstallments(schedule, 40_000, now);
+  assert.equal(modified[0].status, "PAID");
+  assert.equal(modified[1].paidMinor, 40_000 - schedule[0].amountMinor);
+
+  const debt = {
+    id: "dbt_over",
+    contactName: "طارق سعيد",
+    direction: "RECEIVABLE",
+    principalMinor: 100_000,
+    remainingMinor: 60_000,
+    currencyCode: "YER",
+    recordedAtMillis: now - 20 * DAY,
+    dueAtMillis: now - 2 * DAY,
+    reason: "فاتورة",
+    status: "PARTIAL"
+  };
+
+  const disabledEval = evaluateDueNotifications({
+    debts: [debt],
+    installments: schedule,
+    reminders: [],
+    existingNotifications: [],
+    prefs: { notificationsEnabled: false },
+    nowMillis: now
+  });
+  assert.equal(disabledEval.newNotifications.length, 0);
+
+  const eval1 = evaluateDueNotifications({
+    debts: [debt],
+    installments: [
+      { id: "ins_due_soon", debtId: "dbt_over", installmentNumber: 2, amountMinor: 30_000, paidMinor: 0, dueAtMillis: now + 12 * 3_600_000, status: "PENDING" }
+    ],
+    reminders: [
+      { id: "rem_1", debtId: "dbt_over", title: "متابعة قسط", message: "رسالة", triggerAtMillis: now - 1000, repeatType: "DAILY", isEnabled: true, isSent: false }
+    ],
+    existingNotifications: [],
+    prefs: { notificationsEnabled: true, defaultCurrency: "YER" },
+    nowMillis: now
+  });
+  assert.equal(eval1.newNotifications.length, 3);
+  assert.ok(eval1.newNotifications.some((n) => n.category === "OVERDUE"));
+  assert.ok(eval1.newNotifications.some((n) => n.category === "INSTALLMENT_DUE_SOON"));
+  assert.ok(eval1.newNotifications.some((n) => n.category === "CUSTOM_REMINDER"));
+  assert.ok(eval1.updatedReminders[0].triggerAtMillis > now);
+
+  // Deduplicates same day
+  const eval2 = evaluateDueNotifications({
+    debts: [debt],
+    installments: [
+      { id: "ins_due_soon", debtId: "dbt_over", installmentNumber: 2, amountMinor: 30_000, paidMinor: 0, dueAtMillis: now + 12 * 3_600_000, status: "PENDING" }
+    ],
+    reminders: eval1.updatedReminders,
+    existingNotifications: eval1.newNotifications,
+    prefs: { notificationsEnabled: true, defaultCurrency: "YER" },
+    nowMillis: now + 60_000
+  });
+  assert.equal(eval2.newNotifications.length, 0);
+
+  const series = buildMonthlySeries([debt], [], "YER", now);
+  assert.equal(series.length, 6);
+  const cashflowHtml = renderMonthlyCashflowChartHtml(series);
+  assert.ok(cashflowHtml.includes("<svg"));
+  const donutHtml = renderReceivablePayableDonutHtml(60_000, 20_000, "YER");
+  assert.ok(donutHtml.includes("75%"));
 });

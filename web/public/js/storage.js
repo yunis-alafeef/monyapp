@@ -1,12 +1,17 @@
 const DB_NAME = "hisabati_pwa_db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const DEFAULT_PREFS = {
   id: "user_prefs",
   themeMode: "LIGHT",
   themePalette: "royal",
   defaultCurrency: "YER",
-  workspaceName: "حسابي",
+  accountType: "PERSONAL",
+  workspaceName: "محفظتي الشخصية",
+  notificationsEnabled: true,
+  defaultReminderHour: 9,
+  defaultReminderMinute: 0,
+  reminderPriorityHigh: true,
   whatsappStyle: "FORMAL",
   whatsappIncludeWorkspaceHeader: true,
   whatsappIncludeFinancialBreakdown: true,
@@ -39,6 +44,9 @@ function openDb() {
       if (!db.objectStoreNames.contains("contacts")) db.createObjectStore("contacts", { keyPath: "id" });
       if (!db.objectStoreNames.contains("debts")) db.createObjectStore("debts", { keyPath: "id" });
       if (!db.objectStoreNames.contains("payments")) db.createObjectStore("payments", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("installments")) db.createObjectStore("installments", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("reminders")) db.createObjectStore("reminders", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("notifications")) db.createObjectStore("notifications", { keyPath: "id" });
       if (!db.objectStoreNames.contains("outbox")) db.createObjectStore("outbox", { keyPath: "id" });
       if (!db.objectStoreNames.contains("preferences")) db.createObjectStore("preferences", { keyPath: "id" });
     };
@@ -67,6 +75,18 @@ async function putItem(storeName, item) {
   });
 }
 
+async function putMany(storeName, items) {
+  if (!items || !items.length) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    for (const item of items) store.put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 async function deleteItem(storeName, id) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -78,10 +98,13 @@ async function deleteItem(storeName, id) {
 }
 
 export async function loadAllLocalState() {
-  const [contacts, debts, payments, outbox, prefsArr] = await Promise.all([
+  const [contacts, debts, payments, installments, reminders, notifications, outbox, prefsArr] = await Promise.all([
     getAll("contacts"),
     getAll("debts"),
     getAll("payments"),
+    getAll("installments"),
+    getAll("reminders"),
+    getAll("notifications"),
     getAll("outbox"),
     getAll("preferences")
   ]);
@@ -90,6 +113,9 @@ export async function loadAllLocalState() {
     contacts: contacts.sort((a, b) => a.fullName.localeCompare(b.fullName, "ar")),
     debts: debts.sort((a, b) => (b.recordedAtMillis || 0) - (a.recordedAtMillis || 0)),
     payments: payments.sort((a, b) => (b.paidAtMillis || 0) - (a.paidAtMillis || 0)),
+    installments: installments.sort((a, b) => (a.dueAtMillis || 0) - (b.dueAtMillis || 0)),
+    reminders: reminders.sort((a, b) => (a.triggerAtMillis || 0) - (b.triggerAtMillis || 0)),
+    notifications: notifications.sort((a, b) => (b.createdAtMillis || 0) - (a.createdAtMillis || 0)),
     outbox,
     preferences: prefs
   };
@@ -103,12 +129,39 @@ export async function saveDebtLocal(debt) {
   return putItem("debts", debt);
 }
 
-export async function savePaymentAndDebtLocal(payment, updatedDebt) {
+export async function saveInstallmentsLocal(items) {
+  return putMany("installments", items);
+}
+
+export async function saveReminderLocal(reminder) {
+  return putItem("reminders", reminder);
+}
+
+export async function deleteReminderLocal(id) {
+  return deleteItem("reminders", id);
+}
+
+export async function saveNotificationLocal(notification) {
+  return putItem("notifications", notification);
+}
+
+export async function saveNotificationsBatchLocal(list) {
+  return putMany("notifications", list);
+}
+
+export async function markAllNotificationsReadLocal(notifications) {
+  const updated = (notifications || []).map((n) => ({ ...n, isRead: true }));
+  return putMany("notifications", updated);
+}
+
+export async function savePaymentAndDebtLocal(payment, updatedDebt, updatedInstallments = []) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(["payments", "debts"], "readwrite");
+    const tx = db.transaction(["payments", "debts", "installments"], "readwrite");
     tx.objectStore("payments").put(payment);
     tx.objectStore("debts").put(updatedDebt);
+    const instStore = tx.objectStore("installments");
+    for (const inst of updatedInstallments) instStore.put(inst);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -131,11 +184,14 @@ export async function exportFullBackupJson() {
   return JSON.stringify(
     {
       app: "HISABATI_PWA",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       contacts: state.contacts,
       debts: state.debts,
       payments: state.payments,
+      installments: state.installments,
+      reminders: state.reminders,
+      notifications: state.notifications,
       preferences: state.preferences
     },
     null,
@@ -150,10 +206,16 @@ export async function importFullBackupJson(jsonText) {
   }
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(["contacts", "debts", "payments", "preferences"], "readwrite");
+    const tx = db.transaction(
+      ["contacts", "debts", "payments", "installments", "reminders", "notifications", "preferences"],
+      "readwrite"
+    );
     for (const c of parsed.contacts) tx.objectStore("contacts").put(c);
     for (const d of parsed.debts) tx.objectStore("debts").put(d);
     for (const p of parsed.payments || []) tx.objectStore("payments").put(p);
+    for (const ins of parsed.installments || []) tx.objectStore("installments").put(ins);
+    for (const rem of parsed.reminders || []) tx.objectStore("reminders").put(rem);
+    for (const ntf of parsed.notifications || []) tx.objectStore("notifications").put(ntf);
     if (parsed.preferences) {
       tx.objectStore("preferences").put({ ...DEFAULT_PREFS, ...parsed.preferences, id: "user_prefs" });
     }
